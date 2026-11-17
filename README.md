@@ -23,9 +23,8 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
 * Two-factor login support with one-shot verification codes and a configurable
   Govee Home app version for recovering from upstream login changes.
 * Support for the official [Platform
-  API](https://developer.govee.com/reference/get-you-devices). For segment and
-  DreamView commands, cloud fallback is disabled by default and must be
-  explicitly selected; LAN always remains first.
+  API](https://developer.govee.com/reference/get-you-devices), with unified
+  LAN first, LAN only, and Cloud control modes.
 * Real-time state updates via the official Govee MQTT push API (requires API key).
 * Per-device and per-segment color control via LAN.
 * Device grouping — control multiple devices as one light entity.
@@ -48,7 +47,7 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
 |Music Modes|API Key|Find in the list of Effects for the light in Home Assistant|
 |Tap-to-Run / One Click Scene|IoT|Find in the overall list of Scenes in Home Assistant, as well as under the `Govee to MQTT` device|
 |Live Device Status Updates|LAN and/or IoT and/or API Key|Devices typically report most changes within a couple of seconds.|
-|Segment Color|LAN; optional cloud fallback|Find the `Segment 00X` light entities associated with your main light device in Home Assistant. LAN is always attempted first.|
+|Segment Color|LAN or account IoT|Segment entities follow the selected transport mode.|
 |Video DreamView|LAN, Platform API or account IoT|Sync centers are discovered automatically; control follows the selected transport mode.|
 |Music DreamView scenes|Govee account topology + API Key|Saved Music DreamView cards appear under Groups & scenes with API-derived members and use their selected music center's Platform capability.|
 |Energy Monitoring|API Key|Smart plugs expose power, voltage, current, and energy sensors|
@@ -65,7 +64,7 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
 | Channel | Needs | Control | Status | Latency |
 |---------|-------|---------|--------|---------|
 | LAN | Device on network + LAN enabled | Full (power, color, brightness, scenes, segments) | Real-time broadcast | Lowest |
-| IoT | Govee email + password | Full + one-click scenes | Real-time push | Low |
+| IoT | Account access token or account sign-in | Full + one-click scenes | Real-time push | Low |
 | Platform API | API key | Full except one-click | Poll (120s default) | Medium |
 | Govee Push | API key | Read-only | Real-time push | Low |
 

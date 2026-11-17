@@ -102,13 +102,6 @@ The read-back procedure:
 3. Repeat per style, then verify each entry by sending a palette to it
    and checking the device visually.
 
-Caveats learned the hard way:
+## Status read-back
 
-- Setting the style via the **app** reliably updates the read-back frame.
-  Setting it via the **Platform API** did not update `aa 05 13` on the
-  Some devices do not report Platform-set music modes; treat read-back as unavailable and
-  prefer the app when mapping.
-- A wrong profile id is usually ignored silently, but on some dialects a
-  malformed sequence can hang the light until it is power-cycled. Verify
-  on hardware you can reach.
-
+Music-mode status reporting depends on the device protocol. Platform commands may not update the IoT profile frame. Profile mappings use the device-reported status from Govee Home.

@@ -192,6 +192,9 @@ async fn enumerate_devices_via_platform_api(
         let mut device = state.device_mut(&info.sku, &info.device).await;
         device.set_http_device_info(info);
     }
+    if let Some(hass) = state.get_hass_client().await {
+        hass.re_register(&state).await?;
+    }
     Ok(())
 }
 
@@ -254,7 +257,7 @@ async fn enumerate_devices_via_undo_api(
         device.set_undoc_device_info(entry, room_name);
     }
 
-    if needs_start {
+    if needs_start || !state.has_iot_session().await {
         if let Err(err) = start_iot_client(args, state.clone(), None).await {
             log::warn!("Account IoT connection is unavailable: {err:#}");
         }
@@ -266,17 +269,6 @@ async fn enumerate_devices_via_undo_api(
     Ok(())
 }
 
-const ISSUE_76_EXPLANATION: &str = "Startup cannot automatically continue because entity names\n\
-    could become inconsistent especially across frequent similar\n\
-    intermittent issues if/as they occur on an ongoing basis.\n\
-    Please see https://github.com/wez/govee2mqtt/issues/76\n\
-    A workaround is to remove the Govee API credentials from your\n\
-    configuration, which will cause this govee2mqtt to use only\n\
-    the LAN API. Two consequences of that will be loss of control\n\
-    over devices that do not support the LAN API, and also devices\n\
-    changing entity ID to less descriptive names due to lack of\n\
-    metadata availability via the LAN API.";
-
 impl ServeCommand {
     pub async fn run(&self, args: &crate::Args) -> anyhow::Result<()> {
         log::info!("Starting service. version {}", govee_version());
@@ -287,119 +279,69 @@ impl ServeCommand {
         state.set_control_mode(mode);
         log::info!("Cloud Authentication & Control: {mode}");
 
-        Self::discover_devices(&state, args).await?;
         Self::start_lan_discovery(&state, args).await?;
+        Self::discover_devices(&state, args).await?;
         Self::log_discovered_devices(&state).await;
         Self::start_services(self.http_port, &state, args).await
     }
 
-    /// Run API discovery, falling back to cached device database on failure.
+    /// Discover configured cloud devices without interrupting local operation.
     async fn discover_devices(state: &StateHandle, args: &crate::Args) -> anyhow::Result<()> {
         if !state.control_mode().allows_cloud() { return Ok(()); }
         let mut device_db = crate::service::device_database::load_device_database();
-        let mut api_discovery_failed = false;
-
+        let mut failed = false;
         if let Ok(client) = args.api_args.api_client() {
-            if let Err(err) =
-                enumerate_devices_via_platform_api(state.clone(), Some(client.clone())).await
-            {
-                let err_str = format!("{err:#}");
-                if err_str.contains("dns error") || err_str.contains("Name does not resolve") {
-                    log::error!(
-                        "DNS resolution failed for Govee API. Check your network connection \
-                         and DNS settings. If running in Docker, ensure DNS is configured. \
-                         Error: {err:#}"
-                    );
-                } else if err_str.contains("connect") || err_str.contains("timeout") {
-                    log::error!(
-                        "Cannot reach Govee API servers. Check your internet connection. \
-                         Error: {err:#}"
-                    );
-                } else {
-                    log::error!("Error during initial platform API discovery: {err:#}");
-                }
-                api_discovery_failed = true;
-            } else {
-                state.set_platform_client(client).await;
-
-                let state = state.clone();
-                tokio::spawn(async move {
-                    loop {
-                        sleep(Duration::from_secs(600)).await;
-                        if let Err(err) =
-                            enumerate_devices_via_platform_api(state.clone(), None).await
-                        {
-                            log::error!("Error during periodic platform API discovery: {err:#}");
-                        }
+            state.set_platform_client(client.clone()).await;
+            if let Err(err) = enumerate_devices_via_platform_api(state.clone(), Some(client)).await {
+                log::warn!("Platform device discovery is unavailable: {err:#}");
+                failed = true;
+            }
+            let state = state.clone();
+            tokio::spawn(async move {
+                loop {
+                    sleep(Duration::from_secs(600)).await;
+                    if let Err(err) = enumerate_devices_via_platform_api(state.clone(), None).await {
+                        log::warn!("Platform device discovery is unavailable: {err:#}");
                     }
-                });
-            }
+                }
+            });
         }
-
         if let Ok(client) = args.undoc_args.api_client() {
-            if let Err(err) = enumerate_devices_via_undo_api(
-                state.clone(),
-                Some(client.clone()),
-                &args.undoc_args,
-            )
-            .await
-            {
-                log::error!("Error during initial undoc API discovery: {err:#}");
-                api_discovery_failed = true;
-            } else {
-                // The verification code is one-shot. Persist a code-free client
-                // so a later token refresh cannot replay it.
-                state.set_undoc_client(client.with_code(None)).await;
+            state.set_undoc_client(client.clone()).await;
+            match enumerate_devices_via_undo_api(state.clone(), Some(client.clone()), &args.undoc_args).await {
+                Ok(()) => state.set_undoc_client(client.with_code(None)).await,
+                Err(_) => {
+                    log::warn!("Account device discovery is unavailable");
+                    failed = true;
+                }
             }
-
             let state = state.clone();
             let args = args.undoc_args.clone();
             tokio::spawn(async move {
                 loop {
                     sleep(Duration::from_secs(600)).await;
-                    if let Err(err) =
-                        enumerate_devices_via_undo_api(state.clone(), None, &args).await
-                    {
-                        log::error!("Error during periodic undoc API discovery: {err:#}");
+                    if let Err(err) = enumerate_devices_via_undo_api(state.clone(), None, &args).await {
+                        log::warn!("Account device discovery is unavailable: {err:#}");
                     }
                 }
             });
         }
-
-        if !api_discovery_failed {
-            let devices = state.devices().await;
-            if !devices.is_empty() {
-                crate::service::device_database::update_database_from_devices(
-                    &mut device_db,
-                    &devices,
-                );
-                if let Err(err) = crate::service::device_database::save_device_database(&device_db)
-                {
-                    log::warn!("Failed to save device database: {err:#}");
-                }
-            }
-        } else if !device_db.devices.is_empty() {
-            log::warn!(
-                "API discovery failed. Using cached device database ({} devices). \
-                 Some features may be limited.",
-                device_db.devices.len()
-            );
+        if failed {
             for persisted in device_db.devices.values() {
                 let mut device = state.device_mut(&persisted.sku, &persisted.device_id).await;
-                device.set_http_device_info(crate::platform_api::HttpDeviceInfo {
-                    sku: persisted.sku.clone(),
-                    device: persisted.device_id.clone(),
-                    device_name: persisted.name.clone(),
-                    device_type: Default::default(),
-                    capabilities: vec![],
-                });
+                if device.http_device_info.is_none() {
+                    device.set_http_device_info(crate::platform_api::HttpDeviceInfo {
+                        sku: persisted.sku.clone(), device: persisted.device_id.clone(),
+                        device_name: persisted.name.clone(), device_type: Default::default(), capabilities: vec![],
+                    });
+                }
             }
-        } else if api_discovery_failed {
-            anyhow::bail!(
-                "API discovery failed and no cached device database exists.\n{ISSUE_76_EXPLANATION}"
-            );
+        } else {
+            crate::service::device_database::update_database_from_devices(&mut device_db, &state.devices().await);
+            if let Err(err) = crate::service::device_database::save_device_database(&device_db) {
+                log::warn!("Could not save device metadata: {err}");
+            }
         }
-
         Ok(())
     }
 
@@ -601,6 +543,28 @@ impl ServeCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn lan_only_startup_does_not_initialize_cloud_services() {
+        use clap::Parser;
+        let args = crate::Args::try_parse_from(["govee", "--api-key", "test-key", "--govee-token", "test-token", "serve"]).unwrap();
+        let state = Arc::new(crate::service::state::State::new());
+        state.set_control_mode(crate::service::control::ControlMode::LanOnly);
+        tokio::time::timeout(Duration::from_secs(1), ServeCommand::discover_devices(&state, &args)).await.unwrap().unwrap();
+        assert!(state.get_platform_client().await.is_none());
+        assert!(state.get_undoc_client().await.is_none());
+        assert!(!state.has_iot_session().await);
+    }
+
+    #[tokio::test]
+    async fn cloud_startup_does_not_initialize_lan_discovery() {
+        use clap::Parser;
+        let args = crate::Args::try_parse_from(["govee", "serve"]).unwrap();
+        let state = Arc::new(crate::service::state::State::new());
+        state.set_control_mode(crate::service::control::ControlMode::Cloud);
+        tokio::time::timeout(Duration::from_secs(1), ServeCommand::start_lan_discovery(&state, &args)).await.unwrap().unwrap();
+        assert!(state.get_lan_client().await.is_none());
+    }
 
     #[test]
     fn parse_poll_interval_defaults_to_120s() {

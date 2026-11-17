@@ -439,6 +439,10 @@ impl State {
         }
     }
 
+    pub async fn has_iot_session(&self) -> bool {
+        self.iot_client.lock().await.is_some()
+    }
+
     pub async fn get_iot_client(&self) -> Option<IotClient> {
         if !self.control_mode().allows_cloud() || !self.iot_connected.load(std::sync::atomic::Ordering::Relaxed) { return None; }
         self.iot_client.lock().await.clone()

@@ -106,40 +106,13 @@ timed-out confirmation poll still counts toward the breaker threshold even
 though it is never blocked: unreachability is evidence no matter which poll
 observed it.
 
-### LAN-first feature fallback
+### Transport selection
 
-Segment color/off commands and video DreamView (`dreamViewToggle`) commands for
-sync centers selected in the Govee home-layout topology use LAN `ptReal` first.
-A `ptReal` UDP write has no acknowledgement, so the bridge runs one status-query
-cycle using `lan_query_attempts` and `lan_query_backoff_ms` as a liveness check.
-It uses the configured cloud fallback only if those LAN probes fail or the
-device was not discovered on LAN. Cloud credentials alone never enable this
-fallback, and a generic `dreamViewToggle` capability does not make a light a
-video sync center.
+The Cloud Authentication & Control setting applies to all discovery, polling and control paths. LAN first prefers available local operations and uses a cloud transport when needed. LAN only does not connect to cloud services. Cloud does not discover or contact devices over LAN.
 
-Saved Music DreamView cards are a separate API-backed virtual control. They are
-listed under **Groups & scenes**, take their members and selected music center
-from the home-layout API, and call that center's Platform capability directly.
+DreamView centers and saved account actions are discovered automatically. Independent segment brightness requires a supported Platform capability. LAN only exposes local scene encodings without downloading cloud catalogs.
 
-The `iot` fallback is attempted only when account login has produced an IoT
-client and the device metadata contains a usable IoT topic. This explicit
-selection overrides conservative automatic-routing defaults in device quirks;
-it does not alter transport selection for any other commands.
-
-Scene selection does not use this fallback option. Scenes dynamically prefer a
-verified LAN path when the device was discovered locally. Devices without LAN,
-and individual scenes that have no local encoding, use the Platform API when
-the requested scene is advertised in that device's Platform capabilities.
-Decoded IoT scene packets remain the final path when Platform cannot provide
-the requested scene.
-
-Independent segment brightness has no verified LAN `ptReal` packet. A
-brightness-only segment command therefore needs the `platform` fallback;
-segment color and off remain local. Camera-based video sync that is not exposed
-as `dreamViewToggle` is not covered by this setting.
-
-See [LAN API requirements and troubleshooting](LAN.md) for port and network
-topology details.
+See [control modes and authentication](CONTROL.md) and [LAN requirements](LAN.md).
 
 ## MQTT Configuration
 
