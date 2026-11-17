@@ -8,4 +8,4 @@ The existing Verify, build and publish workflow validates metadata, runs Clippy,
 
 The workflow continues publication in the same run because releases created with `GITHUB_TOKEN` do not trigger another release-event workflow. Manual release publication and nonpublishing workflow_dispatch remain supported. Credentials are handled by GitHub Actions; no personal access token is required in source.
 
-Retries can resume a matching tag/release at the same SHA. A tag pointing to any other object is rejected and never replaced. Failed build jobs can be rerun without moving the tag.
+Updating prepared notes for an existing version reissues its tag and release at the verified descendant commit and rebuilds its images. Unrelated tag histories are rejected. Failed build jobs can be rerun without moving the tag.

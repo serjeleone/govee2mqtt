@@ -49,7 +49,7 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
 |Tap-to-Run / One Click Scene|IoT|Find in the overall list of Scenes in Home Assistant, as well as under the `Govee to MQTT` device|
 |Live Device Status Updates|LAN and/or IoT and/or API Key|Devices typically report most changes within a couple of seconds.|
 |Segment Color|LAN; optional cloud fallback|Find the `Segment 00X` light entities associated with your main light device in Home Assistant. LAN is always attempted first.|
-|Video DreamView|Govee account topology + LAN; optional cloud fallback|Only user-selected video sync centers are exposed. Their `dreamViewToggle` is controlled with LAN `ptReal` first.|
+|Video DreamView|LAN, Platform API or account IoT|Sync centers are discovered automatically; control follows the selected transport mode.|
 |Music DreamView scenes|Govee account topology + API Key|Saved Music DreamView cards appear under Groups & scenes with API-derived members and use their selected music center's Platform capability.|
 |Energy Monitoring|API Key|Smart plugs expose power, voltage, current, and energy sensors|
 |Effect List Filtering|API Key|Disable or filter effects for Google Home compatibility|
@@ -69,17 +69,11 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
 | Platform API | API key | Full except one-click | Poll (120s default) | Medium |
 | Govee Push | API key | Read-only | Real-time push | Low |
 
-The bridge picks the best available channel for each device and command. For
-segments and a selected video DreamView center, this policy is deliberately
-stricter: LAN is first and the cloud is used only when `lan_cloud_fallback`
-explicitly names `iot` or `platform`. Saved Music DreamView cards use the
-Platform capability advertised by their API-selected music center.
+**Cloud Authentication & Control** provides three modes: **LAN first** (default), **LAN only**, and **Cloud**. The selected mode applies to discovery, status polling and control. See [control modes and authentication](docs/CONTROL.md).
 
 * `API Key` means that you have [applied for a key from Govee](https://developer.govee.com/reference/apply-you-govee-api-key)
   and have configured it for use in govee2mqtt
-* `IoT` means that you have configured your Govee account email and password for
-  use in govee2mqtt, which will then attempt to use the
-  *undocumented and likely unsupported* AWS MQTT-based IoT service
+* `IoT` uses an authenticated Govee account session, supplied by an account access token or account sign-in.
 * `LAN` means that you have enabled the [Govee LAN API](https://app-h5.govee.com/user-manual/wlan-guide)
   on supported devices and that the LAN API protocol is functional on your network
 
@@ -194,3 +188,4 @@ The official Govee MQTT push API was discovered via
 
 LAN segment color control was contributed by
 [alexluckett](https://github.com/alexluckett/govee2mqtt-segment-control).
+

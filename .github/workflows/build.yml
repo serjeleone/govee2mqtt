@@ -131,6 +131,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Publish date tag and release
         if: github.event_name == 'push'
@@ -143,18 +144,20 @@ jobs:
           notes=".github/release-notes/${RELEASE_TAG}.md"
           test -s "$notes"
           ./scripts/ci-metadata.sh
-          # Match previous lightweight date tags; never replace an existing ref.
-          # A retry may resume a partially completed publication at the same SHA.
+          # A prepared release update rebuilds the same version at a descendant commit.
           if existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq .object.sha 2>/dev/null)"; then
             if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
-              echo "::error::Tag ${RELEASE_TAG} points to another object"
-              exit 1
+              git merge-base --is-ancestor "$existing_sha" "$GITHUB_SHA"
+              gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" \
+                -f sha="$GITHUB_SHA" -F force=true >/dev/null
             fi
           else
             gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" >/dev/null
           fi
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file "$notes" --latest
+          else
             gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
               --notes-file "$notes" --latest
           fi

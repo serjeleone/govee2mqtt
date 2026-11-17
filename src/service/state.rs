@@ -3,10 +3,11 @@ use crate::ble::{
 };
 use crate::lan_api::{
     dreamview_ptreal_commands, segment_color_ptreal_commands, Client as LanClient,
-    CloudFallbackTransport, DeviceColor, DeviceStatus as LanDeviceStatus, LanDevice,
+    DeviceColor, DeviceStatus as LanDeviceStatus, LanDevice,
 };
 use crate::platform_api::{DeviceCapability, DeviceType, GoveeApiClient, HttpRequestFailed};
 use crate::service::coordinator::Coordinator;
+use crate::service::control::ControlMode;
 use crate::service::device::Device;
 use crate::service::hass::{topic_safe_id, topic_safe_string, HassClient};
 use crate::service::iot::IotClient;
@@ -57,10 +58,9 @@ pub struct State {
     hass_client: Mutex<Option<HassClient>>,
     hass_discovery_prefix: Mutex<String>,
     temperature_scale: Mutex<TemperatureScale>,
-    lan_cloud_fallback: Mutex<CloudFallbackTransport>,
+    control_mode: std::sync::atomic::AtomicU8,
     virtual_controls: Mutex<Vec<VirtualControlDefinition>>,
     video_dreamview_centers: Mutex<HashSet<String>>,
-    video_dreamview_config: Mutex<Option<crate::service::dreamview::VideoDreamViewConfig>>,
     pub one_click_sync_complete: std::sync::atomic::AtomicBool,
     pub iot_connected: std::sync::atomic::AtomicBool,
     pub virtual_topology_complete: std::sync::atomic::AtomicBool,
@@ -82,10 +82,9 @@ impl Default for State {
             hass_client: Default::default(),
             hass_discovery_prefix: Default::default(),
             temperature_scale: Default::default(),
-            lan_cloud_fallback: Default::default(),
+            control_mode: std::sync::atomic::AtomicU8::new(ControlMode::default() as u8),
             virtual_controls: Default::default(),
             video_dreamview_centers: Default::default(),
-            video_dreamview_config: Default::default(),
             one_click_sync_complete: std::sync::atomic::AtomicBool::new(false),
             iot_connected: std::sync::atomic::AtomicBool::new(false),
             virtual_topology_complete: std::sync::atomic::AtomicBool::new(false),
@@ -105,40 +104,16 @@ enum FeatureTransport {
     Platform,
 }
 
-fn feature_transport_order(
-    has_lan_device: bool,
-    fallback: CloudFallbackTransport,
-) -> Vec<FeatureTransport> {
-    let mut order = vec![];
-    if has_lan_device {
-        order.push(FeatureTransport::Lan);
-    }
-    match fallback {
-        CloudFallbackTransport::Disabled => {}
-        CloudFallbackTransport::Iot => order.push(FeatureTransport::Iot),
-        CloudFallbackTransport::Platform => order.push(FeatureTransport::Platform),
-    }
-    order
+fn feature_transport_order(has_lan: bool, mode: ControlMode) -> Vec<FeatureTransport> {
+    scene_transport_order(has_lan, true, true, mode)
 }
 
-/// Scene routing is dynamic rather than controlled by the segment/DreamView
-/// fallback option. Local control wins when the device was discovered on LAN;
-/// Platform is the normal scene transport for cloud-only devices and for
-/// scenes without a local encoding; decoded IoT packets are the last resort.
-fn scene_transport_order(
-    has_lan_device: bool,
-    has_platform_scene_path: bool,
-    has_iot_scene_path: bool,
-) -> Vec<FeatureTransport> {
+fn scene_transport_order(has_lan: bool, has_platform: bool, has_iot: bool, mode: ControlMode) -> Vec<FeatureTransport> {
     let mut order = vec![];
-    if has_lan_device {
-        order.push(FeatureTransport::Lan);
-    }
-    if has_platform_scene_path {
-        order.push(FeatureTransport::Platform);
-    }
-    if has_iot_scene_path {
-        order.push(FeatureTransport::Iot);
+    if mode.allows_lan() && has_lan { order.push(FeatureTransport::Lan); }
+    if mode.allows_cloud() {
+        if has_platform { order.push(FeatureTransport::Platform); }
+        if has_iot { order.push(FeatureTransport::Iot); }
     }
     order
 }
@@ -156,12 +131,16 @@ impl State {
         *self.temperature_scale.lock().await
     }
 
-    pub async fn set_lan_cloud_fallback(&self, transport: CloudFallbackTransport) {
-        *self.lan_cloud_fallback.lock().await = transport;
+    pub fn set_control_mode(&self, mode: ControlMode) {
+        self.control_mode.store(mode as u8, std::sync::atomic::Ordering::Relaxed);
     }
 
-    pub async fn get_lan_cloud_fallback(&self) -> CloudFallbackTransport {
-        *self.lan_cloud_fallback.lock().await
+    pub fn control_mode(&self) -> ControlMode {
+        match self.control_mode.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => ControlMode::LanOnly,
+            2 => ControlMode::Cloud,
+            _ => ControlMode::LanFirst,
+        }
     }
 
     pub async fn set_virtual_controls(&self, controls: Vec<VirtualControlDefinition>) {
@@ -184,30 +163,11 @@ impl State {
         self.virtual_controls.lock().await.clone()
     }
 
-    pub async fn set_video_dreamview_config(&self, config: Option<crate::service::dreamview::VideoDreamViewConfig>) {
-        *self.video_dreamview_config.lock().await = config;
-    }
-
-    pub async fn video_dreamview_config(&self) -> Option<crate::service::dreamview::VideoDreamViewConfig> {
-        self.video_dreamview_config.lock().await.clone()
-    }
-
-    pub async fn explicitly_selected_dreamview(&self, device: &Device) -> bool {
-        self.video_dreamview_config.lock().await.as_ref()
-            .is_some_and(|config| config.matches(device))
-            && crate::service::dreamview::has_platform_toggle(device)
-    }
-
     pub async fn device_supports_dreamview(&self, device: &Device) -> bool {
-        if self.explicitly_selected_dreamview(device).await {
-            return true;
-        }
-        device.supports_dreamview()
-            && self
-                .video_dreamview_centers
-                .lock()
-                .await
-                .contains(&device.id.to_ascii_lowercase())
+        device.supports_dreamview() && (
+            device.resolve_quirk().is_some_and(|quirk| quirk.supports_dreamview)
+            || self.video_dreamview_centers.lock().await.contains(&device.id.to_ascii_lowercase())
+        )
     }
 
     pub async fn virtual_control_by_id(
@@ -480,6 +440,7 @@ impl State {
     }
 
     pub async fn get_iot_client(&self) -> Option<IotClient> {
+        if !self.control_mode().allows_cloud() || !self.iot_connected.load(std::sync::atomic::Ordering::Relaxed) { return None; }
         self.iot_client.lock().await.clone()
     }
 
@@ -488,6 +449,7 @@ impl State {
     }
 
     pub async fn get_lan_client(&self) -> Option<LanClient> {
+        if !self.control_mode().allows_lan() { return None; }
         self.lan_client.lock().await.clone()
     }
 
@@ -496,6 +458,7 @@ impl State {
     }
 
     pub async fn get_platform_client(&self) -> Option<GoveeApiClient> {
+        if !self.control_mode().allows_cloud() { return None; }
         self.platform_client.lock().await.clone()
     }
 
@@ -532,6 +495,7 @@ impl State {
     }
 
     pub async fn get_undoc_client(&self) -> Option<GoveeUndocumentedApi> {
+        if !self.control_mode().allows_cloud() { return None; }
         self.undoc_client.lock().await.clone()
     }
 
@@ -558,10 +522,8 @@ impl State {
         Some((iot, entry))
     }
 
-    /// Resolve the explicitly selected IoT feature fallback from runtime
-    /// metadata. Unlike normal automatic routing, this is a user override, so
-    /// an old quirk default must not hide a device that has a real IoT topic.
-    async fn explicit_iot_fallback_for_device<'d>(
+    /// Use a feature's advertised IoT topic when an account connection is available.
+    async fn iot_feature_path<'d>(
         &self,
         device: &'d Device,
     ) -> Option<(IotClient, &'d crate::undoc_api::DeviceEntry)> {
@@ -811,14 +773,14 @@ impl State {
             );
         }
         let client = self.get_platform_client().await.ok_or_else(|| {
-            anyhow::anyhow!("Platform fallback is selected but no API client is available")
+            anyhow::anyhow!("Platform API is unavailable")
         })?;
         let info = device
             .http_device_info
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Platform metadata is missing for {device}"))?;
 
-        log::info!("Using configured Platform fallback for {device} segment {segment}");
+        log::info!("Using Platform API for {device} segment {segment}");
         if let Some(brightness) = brightness {
             let result = client.set_segment_brightness(info, segment, brightness).await;
             self.observe_platform_result(device, result).await?;
@@ -838,7 +800,7 @@ impl State {
         enabled: bool,
     ) -> anyhow::Result<()> {
         let client = self.get_platform_client().await.ok_or_else(|| {
-            anyhow::anyhow!("Platform fallback is selected but no API client is available")
+            anyhow::anyhow!("Platform API is unavailable")
         })?;
         let info = device
             .http_device_info
@@ -869,12 +831,12 @@ impl State {
             return Ok(());
         }
 
-        let fallback = self.get_lan_cloud_fallback().await;
-        let order = feature_transport_order(device.lan_device.is_some(), fallback);
+        let mode = self.control_mode();
+        let order = feature_transport_order(device.lan_device.is_some(), mode);
         if order.is_empty() {
             anyhow::bail!(
                 "Unable to control segment {segment} for {device}: device was not discovered on \
-                 LAN and LAN cloud fallback is disabled"
+                 LAN and LAN cloud control is disabled in LAN only mode"
             );
         }
 
@@ -907,10 +869,10 @@ impl State {
                     )),
                 },
                 FeatureTransport::Iot => match local_color {
-                    Some(color) => match self.explicit_iot_fallback_for_device(device).await {
+                    Some(color) => match self.iot_feature_path(device).await {
                         Some((iot, entry)) => {
                             log::info!(
-                                "Using configured IoT fallback for {device} segment {segment}"
+                                "Using IoT API for {device} segment {segment}"
                             );
                             iot.send_real(
                                 entry,
@@ -919,7 +881,7 @@ impl State {
                             .await
                         }
                         None => Err(anyhow::anyhow!(
-                            "IoT fallback is not available for {device}"
+                            "IoT API is unavailable for {device}"
                         )),
                     },
                     None => Err(anyhow::anyhow!(
@@ -952,8 +914,8 @@ impl State {
             }
         }
 
-        let fallback_hint = if fallback == CloudFallbackTransport::Disabled {
-            "; cloud fallback is disabled"
+        let fallback_hint = if !mode.allows_cloud() {
+            "; cloud control is disabled in LAN only mode"
         } else {
             ""
         };
@@ -976,16 +938,12 @@ impl State {
                 "Unable to set video DreamView for {device}: it is not a selected video sync center"
             );
         }
-        let fallback = self.get_lan_cloud_fallback().await;
-        let order = if device.lan_device.is_none() && self.explicitly_selected_dreamview(device).await {
-            vec![FeatureTransport::Platform]
-        } else {
-            feature_transport_order(device.lan_device.is_some(), fallback)
-        };
+        let mode = self.control_mode();
+        let order = feature_transport_order(device.lan_device.is_some(), mode);
         if order.is_empty() {
             anyhow::bail!(
                 "Unable to set DreamView for {device}: device was not discovered on LAN and LAN \
-                 cloud fallback is disabled"
+                 cloud control is disabled in LAN only mode"
             );
         }
 
@@ -1000,14 +958,14 @@ impl State {
                     )
                     .await
                 }
-                FeatureTransport::Iot => match self.explicit_iot_fallback_for_device(device).await {
+                FeatureTransport::Iot => match self.iot_feature_path(device).await {
                     Some((iot, entry)) => {
-                        log::info!("Using configured IoT fallback to set DreamView for {device}");
+                        log::info!("Using IoT API to set DreamView for {device}");
                         iot.send_real(entry, dreamview_ptreal_commands(enabled))
                             .await
                     }
                     None => Err(anyhow::anyhow!(
-                        "IoT fallback is not available for {device}"
+                        "IoT API is unavailable for {device}"
                     )),
                 },
                 FeatureTransport::Platform => {
@@ -1030,8 +988,8 @@ impl State {
             }
         }
 
-        let fallback_hint = if fallback == CloudFallbackTransport::Disabled {
-            "; cloud fallback is disabled"
+        let fallback_hint = if !mode.allows_cloud() {
+            "; cloud control is disabled in LAN only mode"
         } else {
             ""
         };
@@ -1105,12 +1063,7 @@ impl State {
         device: &Device,
         on: bool,
     ) -> anyhow::Result<()> {
-        if self
-            .try_humidifier_set_nightlight(device, |p| p.on = on)
-            .await?
-        {
-            return Ok(());
-        }
+
 
         let instance_name = device
             .get_light_power_toggle_instance_name()
@@ -1121,7 +1074,9 @@ impl State {
                 )
             })?;
 
-        if let Some(lan_dev) = &device.lan_device {
+        if self.control_mode().allows_lan() {
+            if let Some(lan_dev) = &device.lan_device {
+                let result: anyhow::Result<()> = async {
             log::info!("Using LAN API to set {device} light power state");
             lan_dev.send_turn(on).await?;
             self.poll_lan_api(lan_dev, |status| status.on == on).await?;
@@ -1130,6 +1085,23 @@ impl State {
                     .await
                     .set_active_scene(None);
             }
+            return Ok(());
+        
+                }.await;
+                match result {
+                    Ok(()) => return Ok(()),
+                    Err(err) if self.control_mode().allows_cloud() => {
+                        log::warn!("LAN control failed for {device}; using cloud: {err:#}");
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+        }
+
+        if self
+            .try_humidifier_set_nightlight(device, |p| p.on = on)
+            .await?
+        {
             return Ok(());
         }
 
@@ -1166,7 +1138,9 @@ impl State {
         device: &Device,
         on: bool,
     ) -> anyhow::Result<()> {
-        if let Some(lan_dev) = &device.lan_device {
+        if self.control_mode().allows_lan() {
+            if let Some(lan_dev) = &device.lan_device {
+                let result: anyhow::Result<()> = async {
             log::info!("Using LAN API to set {device} power state");
             lan_dev.send_turn(on).await?;
             self.poll_lan_api(lan_dev, |status| status.on == on).await?;
@@ -1176,6 +1150,16 @@ impl State {
                     .set_active_scene(None);
             }
             return Ok(());
+        
+                }.await;
+                match result {
+                    Ok(()) => return Ok(()),
+                    Err(err) if self.control_mode().allows_cloud() => {
+                        log::warn!("LAN control failed for {device}; using cloud: {err:#}");
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
         }
 
         if let Some((iot, entry)) = self.iot_for_device(device).await {
@@ -1211,6 +1195,28 @@ impl State {
         device: &Device,
         percent: u8,
     ) -> anyhow::Result<()> {
+
+
+        if self.control_mode().allows_lan() {
+            if let Some(lan_dev) = &device.lan_device {
+                let result: anyhow::Result<()> = async {
+            log::info!("Using LAN API to set {device} brightness");
+            lan_dev.send_brightness(percent).await?;
+            self.poll_lan_api(lan_dev, |status| status.brightness == percent)
+                .await?;
+            return Ok(());
+        
+                }.await;
+                match result {
+                    Ok(()) => return Ok(()),
+                    Err(err) if self.control_mode().allows_cloud() => {
+                        log::warn!("LAN control failed for {device}; using cloud: {err:#}");
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+        }
+
         if self
             .try_humidifier_set_nightlight(device, |p| {
                 p.brightness = percent;
@@ -1218,14 +1224,6 @@ impl State {
             })
             .await?
         {
-            return Ok(());
-        }
-
-        if let Some(lan_dev) = &device.lan_device {
-            log::info!("Using LAN API to set {device} brightness");
-            lan_dev.send_brightness(percent).await?;
-            self.poll_lan_api(lan_dev, |status| status.brightness == percent)
-                .await?;
             return Ok(());
         }
 
@@ -1251,7 +1249,9 @@ impl State {
         device: &Device,
         kelvin: u32,
     ) -> anyhow::Result<()> {
-        if let Some(lan_dev) = &device.lan_device {
+        if self.control_mode().allows_lan() {
+            if let Some(lan_dev) = &device.lan_device {
+                let result: anyhow::Result<()> = async {
             log::info!("Using LAN API to set {device} color temperature");
             lan_dev.send_color_temperature_kelvin(kelvin).await?;
             self.poll_lan_api(lan_dev, |status| status.color_temperature_kelvin == kelvin)
@@ -1260,6 +1260,16 @@ impl State {
                 .await
                 .set_active_scene(None);
             return Ok(());
+        
+                }.await;
+                match result {
+                    Ok(()) => return Ok(()),
+                    Err(err) if self.control_mode().allows_cloud() => {
+                        log::warn!("LAN control failed for {device}; using cloud: {err:#}");
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
         }
 
         if let Some((iot, entry)) = self.iot_for_device(device).await {
@@ -1346,6 +1356,32 @@ impl State {
         g: u8,
         b: u8,
     ) -> anyhow::Result<()> {
+
+
+        if self.control_mode().allows_lan() {
+            if let Some(lan_dev) = &device.lan_device {
+                let result: anyhow::Result<()> = async {
+            let color = crate::lan_api::DeviceColor { r, g, b };
+            log::info!("Using LAN API to set {device} color");
+            lan_dev.send_color_rgb(color).await?;
+            self.poll_lan_api(lan_dev, |status| status.color == color)
+                .await?;
+            self.device_mut(&device.sku, &device.id)
+                .await
+                .set_active_scene(None);
+            return Ok(());
+        
+                }.await;
+                match result {
+                    Ok(()) => return Ok(()),
+                    Err(err) if self.control_mode().allows_cloud() => {
+                        log::warn!("LAN control failed for {device}; using cloud: {err:#}");
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+        }
+
         if self
             .try_humidifier_set_nightlight(device, |p| {
                 p.r = r;
@@ -1355,18 +1391,6 @@ impl State {
             })
             .await?
         {
-            return Ok(());
-        }
-
-        if let Some(lan_dev) = &device.lan_device {
-            let color = crate::lan_api::DeviceColor { r, g, b };
-            log::info!("Using LAN API to set {device} color");
-            lan_dev.send_color_rgb(color).await?;
-            self.poll_lan_api(lan_dev, |status| status.color == color)
-                .await?;
-            self.device_mut(&device.sku, &device.id)
-                .await
-                .set_active_scene(None);
             return Ok(());
         }
 
@@ -1451,7 +1475,7 @@ impl State {
         if device.pollable_via_iot() && iot_available {
             return;
         }
-        if device.pollable_via_lan() {
+        if self.control_mode().allows_lan() && device.pollable_via_lan() {
             return;
         }
 
@@ -1543,15 +1567,15 @@ impl State {
             }
         }
 
-        let undoc_categories = match GoveeUndocumentedApi::get_scenes_for_device(&device.sku).await
+        let undoc_categories = if !self.control_mode().allows_cloud() { vec![] } else { match GoveeUndocumentedApi::get_scenes_for_device(&device.sku).await
         {
             Ok(categories) => categories,
             Err(err) => {
                 log::trace!("Undocumented scene catalog unavailable for {device}: {err:#}");
                 vec![]
             }
+        }
         };
-
         let decoded_names = crate::service::scene_database::scene_names_for_sku(&device.sku);
         let categories =
             merge_scene_catalog_sources(undoc_categories, platform_names, decoded_names);
@@ -1683,6 +1707,7 @@ impl State {
             device.lan_device.is_some(),
             platform_path.is_some(),
             iot_path.is_some(),
+            self.control_mode(),
         );
 
         if order.is_empty() {
@@ -1710,7 +1735,12 @@ impl State {
                         log::debug!(
                             "Trying LAN API (undocumented catalog) for {device} scene {scene}"
                         );
-                        match lan_device.set_scene_by_name(scene).await {
+                        let result = if self.control_mode().allows_cloud() {
+                            lan_device.set_scene_by_name(scene).await
+                        } else {
+                            Err(anyhow::anyhow!("Scene has no local encoding in LAN only mode"))
+                        };
+                        match result {
                             Ok(()) => async {
                                 let client = self.get_lan_client().await.ok_or_else(|| {
                                     anyhow::anyhow!("LAN client is not running")
@@ -1945,7 +1975,7 @@ impl State {
     ) -> anyhow::Result<()> {
         let encoded = Base64HexBytes::encode_for_sku("Generic:Light", command)?.base64();
 
-        if let Some(lan_dev) = &device.lan_device {
+        if let Some(lan_dev) = device.lan_device.as_ref().filter(|_| self.control_mode().allows_lan()) {
             log::info!("Using LAN API to set {device} music palette");
             lan_dev.send_real(encoded.clone()).await?;
             sleep(Duration::from_millis(300)).await;
@@ -2166,7 +2196,8 @@ mod tests {
         feature_transport_order, merge_scene_catalog_sources, scene_transport_order,
         sort_and_dedup_scenes, FeatureTransport, State,
     };
-    use crate::lan_api::{CloudFallbackTransport, LanDevice};
+    use crate::lan_api::LanDevice;
+    use crate::service::control::ControlMode;
     use crate::platform_api::HttpDeviceInfo;
     use crate::undoc_api::{LightEffectCategory, LightEffectEntry, LightEffectScene};
     use serde_json::json;
@@ -2174,67 +2205,13 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn feature_transport_order_is_lan_first_and_opt_in() {
-        assert_eq!(
-            feature_transport_order(true, CloudFallbackTransport::Disabled),
-            vec![FeatureTransport::Lan]
-        );
-        assert_eq!(
-            feature_transport_order(true, CloudFallbackTransport::Iot),
-            vec![FeatureTransport::Lan, FeatureTransport::Iot]
-        );
-        assert_eq!(
-            feature_transport_order(true, CloudFallbackTransport::Platform),
-            vec![FeatureTransport::Lan, FeatureTransport::Platform]
-        );
-        assert_eq!(
-            feature_transport_order(false, CloudFallbackTransport::Disabled),
-            Vec::<FeatureTransport>::new()
-        );
-        assert_eq!(
-            feature_transport_order(false, CloudFallbackTransport::Platform),
-            vec![FeatureTransport::Platform]
-        );
-    }
-
-    #[test]
-    fn scene_transport_order_is_dynamic_and_lan_first() {
-        assert_eq!(
-            scene_transport_order(true, true, true),
-            vec![
-                FeatureTransport::Lan,
-                FeatureTransport::Platform,
-                FeatureTransport::Iot,
-            ]
-        );
-        assert_eq!(
-            scene_transport_order(false, true, true),
-            vec![FeatureTransport::Platform, FeatureTransport::Iot]
-        );
-        assert_eq!(
-            scene_transport_order(false, true, false),
-            vec![FeatureTransport::Platform]
-        );
-        assert_eq!(
-            scene_transport_order(false, false, false),
-            Vec::<FeatureTransport>::new()
-        );
-    }
-
-    #[tokio::test]
-    async fn cloud_fallback_defaults_disabled_and_requires_explicit_selection() {
-        let state = State::new();
-        assert_eq!(
-            state.get_lan_cloud_fallback().await,
-            CloudFallbackTransport::Disabled
-        );
-        state
-            .set_lan_cloud_fallback(CloudFallbackTransport::Iot)
-            .await;
-        assert_eq!(
-            state.get_lan_cloud_fallback().await,
-            CloudFallbackTransport::Iot
-        );
+    fn all_transport_orders_follow_the_selected_mode() {
+        assert_eq!(feature_transport_order(true, ControlMode::LanFirst), vec![FeatureTransport::Lan, FeatureTransport::Platform, FeatureTransport::Iot]);
+        assert_eq!(feature_transport_order(true, ControlMode::LanOnly), vec![FeatureTransport::Lan]);
+        assert_eq!(feature_transport_order(true, ControlMode::Cloud), vec![FeatureTransport::Platform, FeatureTransport::Iot]);
+        assert!(feature_transport_order(false, ControlMode::LanOnly).is_empty());
+        assert_eq!(scene_transport_order(true, true, false, ControlMode::Cloud), vec![FeatureTransport::Platform]);
+        assert_eq!(State::new().control_mode(), ControlMode::LanFirst);
     }
 
     #[tokio::test]

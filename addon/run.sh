@@ -62,6 +62,8 @@ export_config mqtt_port         GOVEE_MQTT_PORT
 export_config mqtt_username     GOVEE_MQTT_USER
 export_config mqtt_password     GOVEE_MQTT_PASSWORD
 export_config debug_level       RUST_LOG
+export_config control_mode     GOVEE_CONTROL_MODE
+export_config govee_token      GOVEE_ACCOUNT_TOKEN
 export_config govee_email       GOVEE_EMAIL
 export_config govee_password    GOVEE_PASSWORD
 export_config govee_api_key     GOVEE_API_KEY
@@ -73,12 +75,6 @@ export_config lan_query_attempts GOVEE_LAN_QUERY_ATTEMPTS
 export_config lan_query_backoff_ms GOVEE_LAN_QUERY_BACKOFF_MS
 export_config lan_breaker_threshold GOVEE_LAN_BREAKER_THRESHOLD
 export_config lan_breaker_cooldown GOVEE_LAN_BREAKER_COOLDOWN
-export_config lan_cloud_fallback GOVEE_LAN_CLOUD_FALLBACK
-export_config video_dreamview_sku GOVEE_VIDEO_DREAMVIEW_SKU
-export_config video_dreamview_id GOVEE_VIDEO_DREAMVIEW_ID
-export_config dreamview_on_scene GOVEE_DREAMVIEW_ON_SCENE
-export_config dreamview_off_scene GOVEE_DREAMVIEW_OFF_SCENE
-export_config one_click_auth GOVEE_ONE_CLICK_AUTH
 export_config temperature_scale GOVEE_TEMPERATURE_SCALE
 export_config disable_effects    GOVEE_DISABLE_EFFECTS
 export_config allowed_effects    GOVEE_ALLOWED_EFFECTS
@@ -87,7 +83,7 @@ export_config govee_2fa_code     GOVEE_2FA_CODE
 export_config music_palette      GOVEE_MUSIC_PALETTE
 export_config poll_interval      GOVEE_POLL_INTERVAL
 
-env | grep GOVEE_ | sed -r 's/_(EMAIL|KEY|PASSWORD|2FA_CODE)=.*/_\1=REDACTED/'
+env | grep GOVEE_ | sed -r 's/_(EMAIL|KEY|PASSWORD|TOKEN|2FA_CODE)=.*/_\1=REDACTED/'
 set -x
 
 cd /app

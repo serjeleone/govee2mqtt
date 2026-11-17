@@ -1,6 +1,6 @@
 pub mod coordinator;
 pub mod device;
-pub mod dreamview;
+pub mod control;
 pub mod device_config;
 pub mod device_database;
 pub mod event_bus;

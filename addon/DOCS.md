@@ -23,12 +23,8 @@ Common options:
 - `disable_effects`: Disable effects in MQTT discovery (fixes Google Home offline issue)
 - `allowed_effects`: Comma-separated whitelist of effect names to include
 - `lan_query_attempts`, `lan_query_backoff_ms`, `lan_breaker_threshold`, `lan_breaker_cooldown`: Bound LAN status traffic from unresponsive devices
-- **Segment & DreamView Cloud Control** (`lan_cloud_fallback`): Optional second
-  transport used only for RGBIC segment and hardware DreamView commands.
-  `disabled` (default) means LAN only; `iot` uses the signed-in Govee account;
-  `platform` uses the official API key. LAN is always attempted first, and the
-  selected cloud path starts only after the configured LAN status-query attempts
-  fail (about 2.45 seconds with the default 3-attempt schedule).
+- **Cloud Authentication & Control** (`control_mode`): `LAN first` (default), `LAN only`, or `Cloud`.
+- **Govee Account Token** (`govee_token`): Account access token for saved One Click and account cloud services; takes priority over email/password.
 - `music_palette`: Enable the experimental LAN-only custom music palette topic
 
 If `mqtt_host` is left empty, the app waits for the Home Assistant MQTT service and uses the broker details provided by Supervisor.
@@ -160,6 +156,6 @@ Enable the API key to get real-time push updates without polling. Enable LAN con
 - FAQ: https://github.com/serjeleone/govee2mqtt/blob/main/docs/FAQ.md
 
 
-## DreamView recovery
+## Cloud Authentication & Control
 
-See [DreamView recovery and compatibility scenes](https://github.com/serjeleone/govee2mqtt/blob/main/docs/DREAMVIEW_RECOVERY.md) for explicit video-center selection, API-key-only control, legacy scene names, discovery outage behavior, and experimental home-layout authentication.
+See [control modes and authentication](https://github.com/serjeleone/govee2mqtt/blob/main/docs/CONTROL.md).

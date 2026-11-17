@@ -101,7 +101,7 @@ async fn poll_single_device(state: &StateHandle, device: &Device) -> anyhow::Res
     // If we have LAN and the device is stale, it is likely
     // offline and there is little sense in burning up request
     // quota to the platform API for it
-    if device.lan_device.is_some() && !needs_platform {
+    if state.control_mode().allows_lan() && device.lan_device.is_some() && !needs_platform {
         log::trace!("LAN-available device {device} needs a status update; it's likely offline.");
         return Ok(());
     }
@@ -119,6 +119,7 @@ async fn poll_single_device(state: &StateHandle, device: &Device) -> anyhow::Res
 /// its own sequential loop ensures a slow cloud request can never delay LAN
 /// status or local control, and spaces requests out to avoid API bursts.
 async fn periodic_cloud_status_probe(state: StateHandle) {
+    if !state.control_mode().allows_cloud() { return; }
     // Let initial LAN discovery and the first local state poll settle before
     // checking the optional secondary transport.
     sleep(Duration::from_secs(25)).await;
@@ -241,8 +242,8 @@ async fn enumerate_devices_via_undo_api(
     };
 
     log::info!("Querying undocumented API for device + room list...");
-    let acct = client.login_account_cached().await?;
-    let info = client.get_device_list(&acct.token).await?;
+    let token = client.account_token().await?;
+    let info = client.get_device_list(&token).await?;
     let mut group_by_id = HashMap::new();
     for group in info.groups {
         group_by_id.insert(group.group_id, group.group_name);
@@ -254,7 +255,9 @@ async fn enumerate_devices_via_undo_api(
     }
 
     if needs_start {
-        start_iot_client(args, state.clone(), Some(acct)).await?;
+        if let Err(err) = start_iot_client(args, state.clone(), None).await {
+            log::warn!("Account IoT connection is unavailable: {err:#}");
+        }
     }
     // This optional cloud lookup can take tens of seconds during an outage.
     // Run it independently so physical discovery and LAN control are never
@@ -280,12 +283,9 @@ impl ServeCommand {
         crate::service::device_config::load_device_config();
         crate::service::scene_database::load_scene_databases();
         let state = Arc::new(crate::service::state::State::new());
-        state.set_video_dreamview_config(
-            crate::service::dreamview::VideoDreamViewConfig::from_env()?
-        ).await;
-        let cloud_fallback = args.lan_disco_args.cloud_fallback_transport()?;
-        state.set_lan_cloud_fallback(cloud_fallback).await;
-        log::info!("LAN-first segment/DreamView cloud fallback transport: {cloud_fallback}");
+        let mode = args.lan_disco_args.control_mode()?;
+        state.set_control_mode(mode);
+        log::info!("Cloud Authentication & Control: {mode}");
 
         Self::discover_devices(&state, args).await?;
         Self::start_lan_discovery(&state, args).await?;
@@ -295,6 +295,7 @@ impl ServeCommand {
 
     /// Run API discovery, falling back to cached device database on failure.
     async fn discover_devices(state: &StateHandle, args: &crate::Args) -> anyhow::Result<()> {
+        if !state.control_mode().allows_cloud() { return Ok(()); }
         let mut device_db = crate::service::device_database::load_device_database();
         let mut api_discovery_failed = false;
 
@@ -404,6 +405,7 @@ impl ServeCommand {
 
     /// Start LAN UDP discovery and wait for initial device probes.
     async fn start_lan_discovery(state: &StateHandle, args: &crate::Args) -> anyhow::Result<()> {
+        if !state.control_mode().allows_lan() { return Ok(()); }
         let options = args.lan_disco_args.to_disco_options()?;
         if options.is_empty() {
             return Ok(());
@@ -553,7 +555,7 @@ impl ServeCommand {
 
         spawn_hass_integration(state.clone(), &args.hass_args).await?;
 
-        if let Ok(Some(api_key)) = args.api_args.opt_api_key() {
+        if let Ok(Some(api_key)) = args.api_args.opt_api_key().map(|key| key.filter(|_| state.control_mode().allows_cloud())) {
             if let Err(err) =
                 crate::service::govee_push::start_govee_push_client(&api_key, state.clone()).await
             {

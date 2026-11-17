@@ -706,7 +706,9 @@ async fn inspect_device(
         undocumented_scene_categories,
         undocumented_scene_categories_error,
         undocumented_scene_names,
-    ) = match crate::undoc_api::GoveeUndocumentedApi::get_scenes_for_device(&device.sku).await {
+    ) = match if state.control_mode().allows_cloud() {
+        crate::undoc_api::GoveeUndocumentedApi::get_scenes_for_device(&device.sku).await
+    } else { Ok(vec![]) } {
         Ok(categories) => {
             let names = scene_names_from_undoc_categories(&categories);
             (Some(categories), None, Some(names))
@@ -1603,3 +1605,4 @@ pub async fn run_http_server(state: StateHandle, port: u16) -> anyhow::Result<()
 
     Ok(())
 }
+

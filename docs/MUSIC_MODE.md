@@ -106,8 +106,9 @@ Caveats learned the hard way:
 
 - Setting the style via the **app** reliably updates the read-back frame.
   Setting it via the **Platform API** did not update `aa 05 13` on the
-  H607C we tested — treat Platform-set read-back as unconfirmed and
+  Some devices do not report Platform-set music modes; treat read-back as unavailable and
   prefer the app when mapping.
 - A wrong profile id is usually ignored silently, but on some dialects a
   malformed sequence can hang the light until it is power-cycled. Verify
   on hardware you can reach.
+

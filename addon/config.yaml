@@ -29,15 +29,11 @@ map:
 
 options:
   temperature_scale: "C"
-  # Segment and DreamView commands always try LAN first. Cloud use is opt-in.
-  lan_cloud_fallback: "disabled"
+  control_mode: "LAN first"
 
 schema:
-  video_dreamview_sku: "str?"
-  video_dreamview_id: "str?"
-  dreamview_on_scene: "str?"
-  dreamview_off_scene: "str?"
-  one_click_auth: "list(community|account|auto)?"
+  control_mode: "list(LAN first|LAN only|Cloud)"
+  govee_token: "password?"
   temperature_scale: "str?"
   govee_email: "str?"
   govee_password: "password?"
@@ -57,7 +53,6 @@ schema:
   lan_query_backoff_ms: "int(1,3000)?"
   lan_breaker_threshold: "int(0,)?"
   lan_breaker_cooldown: "int(30,900)?"
-  lan_cloud_fallback: "list(disabled|iot|platform)"
   disable_effects: "bool?"
   allowed_effects: "str?"
   # Override the Govee Home app version string sent in API headers.

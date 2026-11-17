@@ -33,39 +33,7 @@ const CMD_PORT: u16 = 4003;
 /// The multicast group of which govee LAN-API enabled devices are members
 const MULTICAST: IpAddr = IpAddr::V4(Ipv4Addr::new(239, 255, 255, 250));
 
-/// Optional cloud transport used only after a local feature command cannot be
-/// delivered. Merely configuring cloud credentials must not change routing:
-/// the operator has to opt in to one concrete fallback transport.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CloudFallbackTransport {
-    #[default]
-    Disabled,
-    Iot,
-    Platform,
-}
-
-impl CloudFallbackTransport {
-    fn parse_config(value: &str) -> anyhow::Result<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "disabled" | "none" | "off" => Ok(Self::Disabled),
-            "iot" => Ok(Self::Iot),
-            "platform" => Ok(Self::Platform),
-            _ => anyhow::bail!(
-                "invalid cloud fallback '{value}', expected disabled, iot, or platform"
-            ),
-        }
-    }
-}
-
-impl std::fmt::Display for CloudFallbackTransport {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Disabled => "disabled",
-            Self::Iot => "iot",
-            Self::Platform => "platform",
-        })
-    }
-}
+use crate::service::control::ControlMode;
 
 #[derive(clap::Parser, Debug)]
 pub struct LanDiscoArguments {
@@ -119,11 +87,10 @@ pub struct LanDiscoArguments {
     #[arg(long, default_value_t = 300, global = true)]
     lan_breaker_cooldown: u64,
 
-    /// Optional cloud fallback for LAN-first segment and DreamView commands.
-    /// Values: disabled, iot, platform. Defaults to disabled.
-    /// You may also set GOVEE_LAN_CLOUD_FALLBACK via the environment.
+    /// Cloud Authentication & Control: LAN first, LAN only, or Cloud.
+    /// May also be set with GOVEE_CONTROL_MODE. Defaults to LAN first.
     #[arg(long, global = true, value_enum)]
-    lan_cloud_fallback: Option<CloudFallbackTransport>,
+    control_mode: Option<ControlMode>,
 }
 
 pub fn truthy(s: &str) -> anyhow::Result<bool> {
@@ -145,14 +112,11 @@ pub fn truthy(s: &str) -> anyhow::Result<bool> {
 }
 
 impl LanDiscoArguments {
-    pub fn cloud_fallback_transport(&self) -> anyhow::Result<CloudFallbackTransport> {
-        if let Some(transport) = self.lan_cloud_fallback {
-            return Ok(transport);
-        }
-
-        match opt_env_var::<String>("GOVEE_LAN_CLOUD_FALLBACK")? {
-            Some(value) => CloudFallbackTransport::parse_config(&value),
-            None => Ok(CloudFallbackTransport::Disabled),
+    pub fn control_mode(&self) -> anyhow::Result<ControlMode> {
+        if let Some(mode) = self.control_mode { return Ok(mode); }
+        match opt_env_var::<String>("GOVEE_CONTROL_MODE")? {
+            Some(value) => ControlMode::parse_config(&value),
+            None => Ok(ControlMode::default()),
         }
     }
 
@@ -1234,7 +1198,7 @@ mod tests {
             lan_query_backoff_ms: backoff_ms,
             lan_breaker_threshold: threshold,
             lan_breaker_cooldown: cooldown,
-            lan_cloud_fallback: None,
+            control_mode: None,
         }
     }
 
@@ -1255,7 +1219,6 @@ mod tests {
             "GOVEE_LAN_BROADCAST_ALL",
             "GOVEE_LAN_BROADCAST_GLOBAL",
             "GOVEE_LAN_SCAN",
-            "GOVEE_LAN_CLOUD_FALLBACK",
         ] {
             std::env::remove_var(var);
         }
@@ -1294,23 +1257,13 @@ mod tests {
         assert_eq!(options.breaker.base_cooldown, 120 * SEC);
 
         let mut args = disco_args(3, 350, 3, 300);
-        assert_eq!(
-            args.cloud_fallback_transport().expect("default fallback"),
-            CloudFallbackTransport::Disabled
-        );
+        assert_eq!(args.control_mode().unwrap(), ControlMode::LanFirst);
+        std::env::set_var("GOVEE_CONTROL_MODE", "LAN only");
+        assert_eq!(args.control_mode().unwrap(), ControlMode::LanOnly);
+        args.control_mode = Some(ControlMode::Cloud);
+        assert_eq!(args.control_mode().unwrap(), ControlMode::Cloud);
+        std::env::remove_var("GOVEE_CONTROL_MODE");
 
-        std::env::set_var("GOVEE_LAN_CLOUD_FALLBACK", "iot");
-        assert_eq!(
-            args.cloud_fallback_transport().expect("env fallback"),
-            CloudFallbackTransport::Iot
-        );
-        args.lan_cloud_fallback = Some(CloudFallbackTransport::Platform);
-        assert_eq!(
-            args.cloud_fallback_transport().expect("CLI fallback"),
-            CloudFallbackTransport::Platform,
-            "an explicit CLI value must beat the environment"
-        );
-        std::env::remove_var("GOVEE_LAN_CLOUD_FALLBACK");
     }
 
     #[test]
@@ -1721,3 +1674,4 @@ mod tests {
         assert_eq!(datagrams, 0, "open breaker must send nothing");
     }
 }
+

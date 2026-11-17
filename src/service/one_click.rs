@@ -15,27 +15,15 @@ pub fn unique_id(name: &str) -> String {
     )
 }
 
-pub fn scene_config(name: &str, replacement: bool) -> SceneConfig {
+pub fn scene_config(name: &str) -> SceneConfig {
     SceneConfig {
         base: EntityConfig {
-            availability_topic: if replacement {
-                availability_topic()
-            } else {
-                String::new()
-            },
-            availability: if replacement {
-                vec![]
-            } else {
-                vec![
-                    AvailabilityEntry {
-                        topic: availability_topic(),
-                    },
-                    AvailabilityEntry {
-                        topic: AVAILABILITY_TOPIC.to_string(),
-                    },
-                ]
-            },
-            availability_mode: (!replacement).then(|| "all".to_string()),
+            availability_topic: String::new(),
+            availability: vec![
+                AvailabilityEntry { topic: availability_topic() },
+                AvailabilityEntry { topic: AVAILABILITY_TOPIC.to_string() },
+            ],
+            availability_mode: Some("all".to_string()),
             name: Some(name.to_string()),
             entity_category: None,
             origin: Origin::default(),
@@ -142,21 +130,14 @@ mod tests {
     }
 
     #[test]
-    fn replacement_uses_original_discovery_identity_and_command() {
-        let name = "One-Click: Default: Включить DreamView";
-        let original = scene_config(name, false);
-        let replacement = scene_config(name, true);
-        assert_eq!(original.base.unique_id, replacement.base.unique_id);
-        // Fixed independently from the former UUID-v5 algorithm and exact UTF-8 name.
-        assert_eq!(
-            original.base.unique_id,
-            "gv2mqtt-one-click-33cd219a490d5822bdd77177081f377b"
-        );
-        assert_eq!(original.command_topic, replacement.command_topic);
-        assert_eq!(original.payload_on, replacement.payload_on);
-        assert_eq!(original.base.availability.len(), 2);
-        assert_eq!(original.base.availability[1].topic, AVAILABILITY_TOPIC);
-        assert_eq!(original.base.availability_mode.as_deref(), Some("all"));
-        assert_eq!(replacement.base.availability_topic, availability_topic());
+    fn scene_identity_and_availability_are_stable() {
+        let name = "One-Click: Home: Evening";
+        let config = scene_config(name);
+        assert_eq!(config.base.unique_id, unique_id(name));
+        assert_eq!(config.command_topic, oneclick_topic());
+        assert_eq!(config.payload_on, name);
+        assert_eq!(config.base.availability.len(), 2);
+        assert_eq!(config.base.availability[1].topic, AVAILABILITY_TOPIC);
+        assert_eq!(config.base.availability_mode.as_deref(), Some("all"));
     }
 }

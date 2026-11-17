@@ -959,28 +959,11 @@ async fn mqtt_oneclick(
     State(state): State<StateHandle>,
 ) -> anyhow::Result<()> {
     log::info!("mqtt_oneclick: {name}");
-    let is_alias = state.video_dreamview_config().await
-        .and_then(|config| config.action(&name)).is_some();
-    if is_alias {
-        let original = match state.get_undoc_client().await {
-            Some(undoc) => undoc.parse_one_clicks().await.ok()
-                .and_then(|items| items.into_iter().find(|item| item.name == name)),
-            None => None,
-        };
-        if let (Some(item), Some(iot)) = (original, state.get_iot_client().await.filter(|_| state.iot_connected.load(std::sync::atomic::Ordering::Relaxed))) {
-            log::info!("Executing original One Click '{name}' through IoT");
-            return iot.activate_one_click(&item).await;
-        }
-        if crate::service::dreamview::activate_alias(&state, &name).await? {
-            return Ok(());
-        }
-    }
-
     let undoc = match state.get_undoc_client().await {
         Some(client) => client,
         None => {
             let msg = "One-click failed: Undoc API client is not available. \
-                       Configure govee_email and govee_password to enable one-click scenes.";
+                       Configure a Govee account access token or account credentials to enable One Click.";
             log::error!("{msg}");
             if let Some(hass) = state.get_hass_client().await {
                 let _ = hass.publish("gv2mqtt/bridge/error", msg).await;
@@ -1024,7 +1007,7 @@ async fn mqtt_oneclick(
         Some(client) if state.iot_connected.load(std::sync::atomic::Ordering::Relaxed) => client,
         _ => {
             let msg = "One-click failed: AWS IoT client is not connected. \
-                       One-click scenes require the IoT connection (govee_email + govee_password).";
+                       One Click requires an active account IoT connection.";
             log::error!("{msg}");
             if let Some(hass) = state.get_hass_client().await {
                 let _ = hass.publish("gv2mqtt/bridge/error", msg).await;

@@ -40,9 +40,7 @@ pub struct Quirk {
     pub show_as_preset_buttons: Option<&'static [&'static str]>,
     /// Number of controllable segments, if the Platform API doesn't report them.
     pub segment_count: Option<u32>,
-    /// Recognize verified DreamView hardware when cloud capability metadata is
-    /// unavailable. Exposure is still gated by the selected video-center
-    /// topology.
+    /// Recognize video DreamView sync-center hardware.
     pub supports_dreamview: bool,
 }
 
@@ -478,6 +476,7 @@ fn load_quirks() -> HashMap<String, Quirk> {
         // the user notes extras can be ignored. <https://github.com/wez/govee2mqtt/issues/567>
         Quirk::lan_api_capable_light("H61E5", STRIP).with_color_temp_range(2700, 6500),
         Quirk::lan_api_capable_light("H66A1", TV_BACK).with_dreamview(),
+        Quirk::light("R2A80", TV_BACK).with_dreamview(),
         Quirk::lan_api_capable_light("H7012", STRING),
         Quirk::lan_api_capable_light("H7013", STRING),
         Quirk::lan_api_capable_light("H7021", STRING),
@@ -561,3 +560,4 @@ fn load_quirks() -> HashMap<String, Quirk> {
 pub fn resolve_quirk(sku: &str) -> Option<&'static Quirk> {
     QUIRKS.get(sku)
 }
+

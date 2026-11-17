@@ -1,20 +1,15 @@
 ---
 configuration:
-  video_dreamview_sku:
-    name: Video DreamView center SKU
-    description: Explicit video sync-center model, e.g. R2A80. Also set its stable device ID. This selection authorizes Platform control when the center has no LAN API.
-  video_dreamview_id:
-    name: Video DreamView center device ID
-    description: Stable device identifier from the Platform API or device inspection, not its IP address. The SKU and ID must match the same device.
-  dreamview_on_scene:
-    name: DreamView ON compatibility scene
-    description: Exact original full name, including One-Click, group, capitalization and spaces. Default is One-Click followed by Default and Включить DreamView, separated by colon and space.
-  dreamview_off_scene:
-    name: DreamView OFF compatibility scene
-    description: Exact original full name. Default is One-Click followed by Default and Выключить DreamView, separated by colon and space. Matching names preserve the previous UUID-based discovery identity.
-  one_click_auth:
-    name: One Click authentication
-    description: Community is the default. Account and auto are experimental home-layout token strategies; auto tries Account then Community. They do not bypass verification or replace original IoT execution.
+  control_mode:
+    name: Cloud Authentication & Control
+    description: >-
+      LAN first prioritizes local control and uses cloud services when needed.
+      LAN only disables cloud connections. Cloud disables LAN discovery and control.
+  govee_token:
+    name: Govee Account Token
+    description: >-
+      Account access token for saved One Click actions and account cloud services.
+      Takes priority over account email and password.
   temperature_scale:
     name: Temperature Scale
     description: >-
@@ -125,15 +120,6 @@ configuration:
     description: >-
       Initial suspension period for an unresponsive device (default 300
       seconds, allowed range 30-900). It doubles after repeated failures.
-  lan_cloud_fallback:
-    name: Segment & DreamView Cloud Control
-    description: >-
-      Optional backup transport used only for RGBIC segment and hardware
-      DreamView commands after the LAN probes do not answer (about 2.45 seconds
-      with the defaults). Disabled means LAN only. IoT uses the signed-in Govee
-      account connection. Platform uses the official Govee API key. Normal
-      scene selection chooses LAN first and Platform automatically for devices
-      or scenes without a local path.
   disable_effects:
     name: Disable Effects
     description: >-

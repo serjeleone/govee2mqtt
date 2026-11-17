@@ -395,14 +395,12 @@ pub async fn start_iot_client(
         std::fs::write(&args.govee_iot_cert, &pem)?;
     }
 
-    let client = mosquitto_rs::Client::with_id(
-        &format!(
-            "AP/{account_id}/{id}",
-            account_id = *acct.account_id,
-            id = uuid::Uuid::new_v4().simple()
-        ),
-        true,
-    )
+    let mqtt_id = if *acct.account_id == 0 {
+        format!("govee2mqtt-{}", uuid::Uuid::new_v4().simple())
+    } else {
+        format!("AP/{}/{}", *acct.account_id, uuid::Uuid::new_v4().simple())
+    };
+    let client = mosquitto_rs::Client::with_id(&mqtt_id, true)
     .context("new client")?;
     client
         .configure_tls(

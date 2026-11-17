@@ -1,0 +1,42 @@
+name: Check prepared release
+on:
+  push:
+    branches: [codex/release-2026-11-17]
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: Verify source and regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Format source
+        run: |
+          rustfmt --edition 2021 --config skip_children=true src/lib.rs src/lan_api.rs src/undoc_api.rs src/commands/serve.rs src/commands/undoc.rs src/service/mod.rs src/service/control.rs src/service/state.rs src/service/iot.rs src/service/hass.rs src/service/http.rs src/service/quirks.rs src/service/one_click.rs src/hass_mqtt/enumerator.rs
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json
+          files = ['src/lib.rs', 'src/lan_api.rs', 'src/undoc_api.rs', 'src/commands/serve.rs', 'src/commands/undoc.rs', 'src/service/mod.rs', 'src/service/control.rs', 'src/service/state.rs', 'src/service/iot.rs', 'src/service/hass.rs', 'src/service/http.rs', 'src/service/quirks.rs', 'src/service/one_click.rs', 'src/hass_mqtt/enumerator.rs']
+          for path in files:
+              content = Path(path).read_text()
+              for index in range(0, len(content), 8000):
+                  print('FORMATTED_SOURCE=' + json.dumps({'path': path, 'index': index, 'content': content[index:index+8000]}))
+          PYCODE
+      - name: Validate release metadata
+        env:
+          RELEASE_TAG: "2026-11-17"
+        run: ./scripts/ci-metadata.sh
+      - run: cargo clippy --all-targets --all-features
+      - run: cargo build --all
+      - run: cargo test --lib -- --show-output
+      - run: cargo test --test lan_simulator -- --show-output
+      - run: docker pull eclipse-mosquitto:2
+      - run: cargo test --test mqtt_integration -- --test-threads=1 --show-output

@@ -19,6 +19,7 @@ updates without polling.
 
 |CLI|ENV|App|Purpose|
 |---|---|-----|-------|
+|`--govee-token`|`GOVEE_ACCOUNT_TOKEN`|`govee_token`|Govee account access token for saved One Click and account services|
 |`--govee-email`|`GOVEE_EMAIL`|`govee_email`|The email address you registered with your govee account|
 |`--govee-password`|`GOVEE_PASSWORD`|`govee_password`|The password you registered for your govee account|
 |`--govee-2fa-code`|`GOVEE_2FA_CODE`|`govee_2fa_code`|One-shot verification code emailed by Govee after a challenged login|
@@ -85,7 +86,6 @@ are tunable without rebuilding:
 |`--lan-query-backoff-ms`|`GOVEE_LAN_QUERY_BACKOFF_MS=350`|`lan_query_backoff_ms`|`350`|Wait after the first attempt, in milliseconds. Doubles on each retry, capped at 3000 ms (the cap is fixed). Defaults give waits of 350 ms → 700 ms → 1400 ms, ~2.5 s total.|
 |`--lan-breaker-threshold`|`GOVEE_LAN_BREAKER_THRESHOLD=3`|`lan_breaker_threshold`|`3`|After this many consecutive timeouts, background polling of that device is suspended (circuit breaker). `0` disables the breaker.|
 |`--lan-breaker-cooldown`|`GOVEE_LAN_BREAKER_COOLDOWN=300`|`lan_breaker_cooldown`|`300`|Suspension length in seconds, clamped to 30–900. Doubles on repeated failure, capped at 900 s.|
-|`--lan-cloud-fallback <transport>`|`GOVEE_LAN_CLOUD_FALLBACK=platform`|`lan_cloud_fallback`|`disabled`|Optional second transport for segment and `dreamViewToggle` commands: `disabled`, `iot`, or `platform`. LAN is always tried first.|
 
 The tradeoff: lowering attempts makes a congested network recover faster but
 makes a slow-to-respond device more likely to report stale state. If you have
@@ -268,6 +268,8 @@ device quirks without code changes:
 |`TZ=Europe/Berlin`|N/A|Use this IANA timezone in console, file, and Web UI log timestamps. The Home Assistant app inherits the Supervisor timezone automatically; standalone runs otherwise use the host system timezone.|
 
 
-## DreamView recovery
+## Cloud Authentication & Control
 
-See [DreamView recovery and compatibility scenes](https://github.com/serjeleone/govee2mqtt/blob/main/docs/DREAMVIEW_RECOVERY.md) for explicit video-center selection, API-key-only control, legacy scene names, discovery outage behavior, and experimental home-layout authentication.
+The `control_mode` app option (`GOVEE_CONTROL_MODE` or `--control-mode`) accepts `LAN first`, `LAN only`, or `Cloud`. The default is `LAN first`.
+
+See [control modes and authentication](https://github.com/serjeleone/govee2mqtt/blob/main/docs/CONTROL.md).

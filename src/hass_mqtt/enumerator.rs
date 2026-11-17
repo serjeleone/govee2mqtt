@@ -87,23 +87,8 @@ async fn enumerate_scenes(state: &StateHandle, entities: &mut EntityList) -> any
         hass.publish_retained(crate::service::one_click::AVAILABILITY_TOPIC,
             if originals_available { "online" } else { "offline" }).await?;
     }
-    let config = state.video_dreamview_config().await;
-    let aliases = if let Some(config) = &config {
-        state.devices().await.into_iter().find(|device| config.matches(device))
-            .filter(|device| config.matches(device) && crate::service::dreamview::has_platform_toggle(device))
-            .is_some() && state.get_platform_client().await.is_some()
-    } else { false };
-    let mut all_names = names.clone();
-    if aliases {
-        let config = config.as_ref().expect("aliases require configuration");
-        all_names.insert(config.on_scene.clone());
-        all_names.insert(config.off_scene.clone());
-    }
-    for name in all_names {
-        // The original scene takes priority when fetched and executable.
-        let replacement = aliases && config.as_ref().and_then(|c| c.action(&name)).is_some()
-            && !(originals_available && names.contains(&name));
-        entities.add(crate::service::one_click::scene_config(&name, replacement));
+    for name in names {
+        entities.add(crate::service::one_click::scene_config(&name));
     }
     Ok(())
 }
