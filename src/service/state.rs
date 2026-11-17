@@ -62,6 +62,7 @@ pub struct State {
     video_dreamview_centers: Mutex<HashSet<String>>,
     video_dreamview_config: Mutex<Option<crate::service::dreamview::VideoDreamViewConfig>>,
     pub one_click_sync_complete: std::sync::atomic::AtomicBool,
+    pub iot_connected: std::sync::atomic::AtomicBool,
     pub virtual_topology_complete: std::sync::atomic::AtomicBool,
     pub event_bus: crate::service::event_bus::EventBus,
     /// Govee official MQTT push stats
@@ -86,6 +87,7 @@ impl Default for State {
             video_dreamview_centers: Default::default(),
             video_dreamview_config: Default::default(),
             one_click_sync_complete: std::sync::atomic::AtomicBool::new(false),
+            iot_connected: std::sync::atomic::AtomicBool::new(false),
             virtual_topology_complete: std::sync::atomic::AtomicBool::new(false),
             event_bus: crate::service::event_bus::EventBus::new(),
             push_connected: std::sync::atomic::AtomicBool::new(false),
@@ -457,6 +459,24 @@ impl State {
 
     pub async fn set_iot_client(&self, client: IotClient) {
         self.iot_client.lock().await.replace(client);
+    }
+
+    pub async fn set_iot_connected(self: &Arc<Self>, connected: bool) {
+        use std::sync::atomic::Ordering;
+        let changed = self.iot_connected.swap(connected, Ordering::Relaxed) != connected;
+        if let Some(hass) = self.get_hass_client().await {
+            let available = connected && self.one_click_sync_complete.load(Ordering::Relaxed);
+            let _ = hass.publish_retained(crate::service::one_click::AVAILABILITY_TOPIC,
+                if available { "online" } else { "offline" }).await;
+            if changed {
+                let state = self.clone();
+                tokio::spawn(async move {
+                    if let Err(err) = hass.re_register(&state).await {
+                        log::warn!("Unable to refresh One Click availability: {err}");
+                    }
+                });
+            }
+        }
     }
 
     pub async fn get_iot_client(&self) -> Option<IotClient> {

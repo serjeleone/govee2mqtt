@@ -83,7 +83,8 @@ async fn enumerate_scenes(state: &StateHandle, entities: &mut EntityList) -> any
             crate::service::one_click::load_names()
         }
     };
-    let originals_available = complete && state.get_iot_client().await.is_some();
+    let originals_available = complete && state.iot_connected.load(Ordering::Relaxed)
+        && state.get_iot_client().await.is_some();
     if let Some(hass) = state.get_hass_client().await {
         hass.publish_retained(crate::service::one_click::AVAILABILITY_TOPIC,
             if originals_available { "online" } else { "offline" }).await?;

@@ -431,10 +431,12 @@ pub async fn start_iot_client(
         })
         .await;
 
+    state.set_iot_connected(true).await;
     tokio::spawn(async move {
-        if let Err(err) = run_iot_subscriber(subscriptions, state, client, acct).await {
+        if let Err(err) = run_iot_subscriber(subscriptions, state.clone(), client, acct).await {
             log::error!("IoT loop failed: {err:#}");
         }
+        state.set_iot_connected(false).await;
         log::info!("IoT loop terminated");
         Ok::<(), anyhow::Error>(())
     });
@@ -623,9 +625,11 @@ async fn run_iot_subscriber(
                 }
             }
             Event::Disconnected(reason) => {
+                state.set_iot_connected(false).await;
                 log::warn!("IoT disconnected with reason {reason}");
             }
             Event::Connected(status) => {
+                state.set_iot_connected(true).await;
                 log::info!("IoT (re)connected with status {status}");
 
                 client
@@ -655,3 +659,4 @@ async fn run_iot_subscriber(
     }
     Ok(())
 }
+

@@ -973,7 +973,7 @@ async fn mqtt_oneclick(
                 .and_then(|items| items.into_iter().find(|item| item.name == name)),
             None => None,
         };
-        if let (Some(item), Some(iot)) = (original, state.get_iot_client().await) {
+        if let (Some(item), Some(iot)) = (original, state.get_iot_client().await.filter(|_| state.iot_connected.load(std::sync::atomic::Ordering::Relaxed))) {
             log::info!("Executing original One Click '{name}' through IoT");
             return iot.activate_one_click(&item).await;
         }
@@ -1027,8 +1027,8 @@ async fn mqtt_oneclick(
     };
 
     let iot = match state.get_iot_client().await {
-        Some(client) => client,
-        None => {
+        Some(client) if state.iot_connected.load(std::sync::atomic::Ordering::Relaxed) => client,
+        _ => {
             let msg = "One-click failed: AWS IoT client is not connected. \
                        One-click scenes require the IoT connection (govee_email + govee_password).";
             log::error!("{msg}");

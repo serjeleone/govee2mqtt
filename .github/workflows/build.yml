@@ -5,6 +5,12 @@ on:
     types:
       - published
   workflow_dispatch:
+  # A prepared release note committed through the GitHub connector is an
+  # explicit release request. GITHUB_TOKEN-created releases do not start a
+  # second workflow, so this run verifies, tags, releases and publishes itself.
+  push:
+    branches: [main]
+    paths: ['.github/release-notes/*.md']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.release.tag_name || github.ref }}
@@ -35,13 +41,13 @@ jobs:
       - name: Check out the requested revision
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
           persist-credentials: false
 
       - name: Validate repository metadata
         id: metadata
         env:
-          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+          RELEASE_TAG: ${{ (github.event_name == 'release' || github.event_name == 'push') && github.event.release.tag_name || '' }}
         run: ./scripts/ci-metadata.sh
 
       - name: Prepare Home Assistant architecture matrix
@@ -85,7 +91,7 @@ jobs:
       - name: Check out the requested revision
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
           persist-credentials: false
 
       - name: Install stable Rust
@@ -113,11 +119,49 @@ jobs:
       - name: Run MQTT integration tests
         run: cargo +stable test --test mqtt_integration -- --test-threads=1 --show-output
 
+  publish-release:
+    name: Publish prepared tag and release
+    needs: [initialize, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out verified source
+        if: github.event_name == 'push'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Publish annotated date tag and release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.initialize.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes=".github/release-notes/${RELEASE_TAG}.md"
+          test -s "$notes"
+          ./scripts/ci-metadata.sh
+          # Fail rather than replacing an existing tag or release.
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${RELEASE_TAG} already exists"
+            exit 1
+          fi
+          tag_sha="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
+            -f tag="$RELEASE_TAG" -f message="Release $RELEASE_TAG" \
+            -f object="$GITHUB_SHA" -f type=commit --jq .sha)"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/$RELEASE_TAG" -f sha="$tag_sha" >/dev/null
+          gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
+            --notes-file "$notes" --latest
+
   standalone:
     name: Standalone ${{ matrix.arch }}
     needs:
       - initialize
       - verify
+      - publish-release
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -129,7 +173,7 @@ jobs:
       - name: Check out the requested revision
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
           persist-credentials: false
 
       - name: Set up QEMU
@@ -150,7 +194,7 @@ jobs:
         run: ./scripts/build-cross.sh "${{ matrix.platform }}"
 
       - name: Log in to GHCR
-        if: github.event_name == 'release'
+        if: (github.event_name == 'release' || github.event_name == 'push')
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -158,7 +202,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Test standalone image
-        if: github.event_name != 'release'
+        if: (github.event_name != 'release' && github.event_name != 'push')
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -173,7 +217,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.initialize.outputs.version }}
 
       - name: Build and push standalone image by digest
-        if: github.event_name == 'release'
+        if: (github.event_name == 'release' || github.event_name == 'push')
         id: publish
         uses: docker/build-push-action@v7
         with:
@@ -190,7 +234,7 @@ jobs:
             org.opencontainers.image.version=${{ needs.initialize.outputs.version }}
 
       - name: Export digest
-        if: github.event_name == 'release'
+        if: (github.event_name == 'release' || github.event_name == 'push')
         env:
           DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
@@ -198,7 +242,7 @@ jobs:
           touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Upload digest
-        if: github.event_name == 'release'
+        if: (github.event_name == 'release' || github.event_name == 'push')
         uses: actions/upload-artifact@v7
         with:
           name: standalone-digest-${{ matrix.arch }}
@@ -208,7 +252,7 @@ jobs:
 
   standalone-manifest:
     name: Publish standalone manifest
-    if: github.event_name == 'release'
+    if: (github.event_name == 'release' || github.event_name == 'push')
     needs:
       - initialize
       - standalone
@@ -254,7 +298,7 @@ jobs:
 
   addon-test:
     name: Test add-on ${{ matrix.arch }}
-    if: github.event_name != 'release'
+    if: (github.event_name != 'release' && github.event_name != 'push')
     needs:
       - initialize
       - verify
@@ -295,7 +339,7 @@ jobs:
 
   addon-publish:
     name: Publish add-on ${{ matrix.arch }}
-    if: github.event_name == 'release'
+    if: (github.event_name == 'release' || github.event_name == 'push')
     needs:
       - initialize
       - standalone-manifest
@@ -311,7 +355,7 @@ jobs:
       - name: Check out the release tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || needs.initialize.outputs.version }}
           persist-credentials: false
 
       - name: Build, sign and publish Home Assistant add-on image
@@ -338,3 +382,4 @@ jobs:
             io.hass.description=${{ needs.initialize.outputs.addon_description }}
             io.hass.url=${{ needs.initialize.outputs.addon_url }}
             org.opencontainers.image.licenses=MIT
+
