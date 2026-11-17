@@ -13,13 +13,15 @@ pub struct ListCommand {
 impl ListCommand {
     pub async fn run(&self, args: &crate::Args) -> anyhow::Result<()> {
         let state = Arc::new(crate::service::state::State::new());
+        let mode = args.lan_disco_args.control_mode()?;
+        state.set_control_mode(mode);
 
         let options = args.lan_disco_args.to_disco_options()?;
-        if options.is_empty() {
+        if options.is_empty() && mode.allows_lan() && !self.skip_lan {
             anyhow::bail!("Discovery options are empty");
         }
 
-        let disco = if self.skip_lan {
+        let disco = if self.skip_lan || !mode.allows_lan() {
             None
         } else {
             eprintln!(
@@ -49,6 +51,7 @@ impl ListCommand {
             }))
         };
 
+        if mode.allows_cloud() {
         if let Ok(client) = args.api_args.api_client() {
             for info in client.get_devices().await? {
                 let mut device = state.device_mut(&info.sku, &info.device).await;
@@ -56,8 +59,8 @@ impl ListCommand {
             }
         }
         if let Ok(client) = args.undoc_args.api_client() {
-            let acct = client.login_account_cached().await?;
-            let info = client.get_device_list(&acct.token).await?;
+            let token = client.account_token().await?;
+            let info = client.get_device_list(&token).await?;
             let mut group_by_id = HashMap::new();
             for group in info.groups {
                 group_by_id.insert(group.group_id, group.group_name);
@@ -67,6 +70,8 @@ impl ListCommand {
                 let room_name = group_by_id.get(&entry.group_id).map(|name| name.as_str());
                 device.set_undoc_device_info(entry, room_name);
             }
+        }
+
         }
 
         if let Some(disco) = disco {
@@ -96,3 +101,4 @@ impl ListCommand {
         Ok(())
     }
 }
+

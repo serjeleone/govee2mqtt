@@ -51,7 +51,6 @@ impl Args {
             SubCommand::ListHttp(_)
             | SubCommand::HttpControl(_)
             | SubCommand::Undoc(_)
-            | SubCommand::List(_)
                 if !mode.allows_cloud() =>
             {
                 anyhow::bail!("Cloud operations are disabled in LAN only mode")

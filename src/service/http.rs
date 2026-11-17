@@ -505,26 +505,22 @@ async fn device_send_ptreal(
         return Err(bad_request("command array is empty"));
     }
 
-    if let Some(lan_dev) = &device.lan_device {
-        log::info!(
-            "Sending ptReal to {device} via LAN ({} commands)",
-            commands.len()
-        );
-        lan_dev.send_real(commands).await.map_err(generic)?;
-    } else if let Some(iot) = state.get_iot_client().await {
-        if let Some(info) = &device.undoc_device_info {
-            log::info!(
-                "Sending ptReal to {device} via IoT ({} commands)",
-                commands.len()
-            );
-            iot.send_real(&info.entry, commands)
-                .await
-                .map_err(generic)?;
-        } else {
-            return Err(generic("device has no IoT info"));
+    let mut sent = false;
+    if state.control_mode().allows_lan() {
+        if let Some(lan) = &device.lan_device {
+            match lan.send_real(commands.clone()).await {
+                Ok(()) => sent = true,
+                Err(err) if state.control_mode().allows_cloud() => {
+                    log::warn!("LAN command delivery failed for {device}; using cloud: {err:#}");
+                }
+                Err(err) => return Err(generic(err)),
+            }
         }
-    } else {
-        return Err(generic("no LAN or IoT API available for ptReal"));
+    }
+    if !sent {
+        let iot = state.get_iot_client().await.ok_or_else(|| generic("No permitted transport is available for ptReal"))?;
+        let info = device.undoc_device_info.as_ref().ok_or_else(|| generic("Device has no IoT metadata"))?;
+        iot.send_real(&info.entry, commands).await.map_err(generic)?;
     }
 
     Ok(response_with_code(StatusCode::OK, "ok"))
@@ -1606,3 +1602,26 @@ pub async fn run_http_server(state: StateHandle, port: u16) -> anyhow::Result<()
     Ok(())
 }
 
+
+#[cfg(test)]
+mod control_mode_tests {
+    use super::*;
+    use crate::service::control::ControlMode;
+    use crate::service::state::State as ServiceState;
+
+    #[tokio::test]
+    async fn raw_commands_cannot_bypass_cloud_mode_through_cached_lan_metadata() {
+        let state = std::sync::Arc::new(ServiceState::new());
+        state.set_control_mode(ControlMode::Cloud);
+        let udp = tokio::net::UdpSocket::bind("127.0.0.3:4003").await.unwrap();
+        state.device_mut("TEST", "RAW-DEVICE").await.set_lan_device(crate::lan_api::LanDevice {
+            ip: "127.0.0.3".parse().unwrap(), device: "RAW-DEVICE".into(), sku: "TEST".into(),
+            ble_version_hard: String::new(), ble_version_soft: String::new(),
+            wifi_version_hard: String::new(), wifi_version_soft: String::new(),
+        });
+        let result = device_send_ptreal(State(state), Path("RAW-DEVICE".into()), Json(serde_json::json!({"command":["AA=="]}))).await;
+        assert!(result.is_err());
+        let mut buffer = [0;1024];
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(30), udp.recv_from(&mut buffer)).await.is_err());
+    }
+}
