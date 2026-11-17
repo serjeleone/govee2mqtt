@@ -1,0 +1,27 @@
+name: Check prepared release
+on:
+  push:
+    branches: [codex/release-2026-11-17]
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: Verify source and regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Validate release metadata
+        env:
+          RELEASE_TAG: "2026-11-17"
+        run: ./scripts/ci-metadata.sh
+      - run: cargo clippy --all-targets --all-features
+      - run: cargo build --all
+      - run: cargo test --lib -- --show-output
+      - run: cargo test --test lan_simulator -- --show-output
+      - run: docker pull eclipse-mosquitto:2
+      - run: cargo test --test mqtt_integration -- --test-threads=1 --show-output

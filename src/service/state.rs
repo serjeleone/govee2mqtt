@@ -60,6 +60,9 @@ pub struct State {
     lan_cloud_fallback: Mutex<CloudFallbackTransport>,
     virtual_controls: Mutex<Vec<VirtualControlDefinition>>,
     video_dreamview_centers: Mutex<HashSet<String>>,
+    video_dreamview_config: Mutex<Option<crate::service::dreamview::VideoDreamViewConfig>>,
+    pub one_click_sync_complete: std::sync::atomic::AtomicBool,
+    pub virtual_topology_complete: std::sync::atomic::AtomicBool,
     pub event_bus: crate::service::event_bus::EventBus,
     /// Govee official MQTT push stats
     pub push_connected: std::sync::atomic::AtomicBool,
@@ -81,6 +84,9 @@ impl Default for State {
             lan_cloud_fallback: Default::default(),
             virtual_controls: Default::default(),
             video_dreamview_centers: Default::default(),
+            video_dreamview_config: Default::default(),
+            one_click_sync_complete: std::sync::atomic::AtomicBool::new(false),
+            virtual_topology_complete: std::sync::atomic::AtomicBool::new(false),
             event_bus: crate::service::event_bus::EventBus::new(),
             push_connected: std::sync::atomic::AtomicBool::new(false),
             push_event_count: std::sync::atomic::AtomicU64::new(0),
@@ -176,7 +182,24 @@ impl State {
         self.virtual_controls.lock().await.clone()
     }
 
+    pub async fn set_video_dreamview_config(&self, config: Option<crate::service::dreamview::VideoDreamViewConfig>) {
+        *self.video_dreamview_config.lock().await = config;
+    }
+
+    pub async fn video_dreamview_config(&self) -> Option<crate::service::dreamview::VideoDreamViewConfig> {
+        self.video_dreamview_config.lock().await.clone()
+    }
+
+    pub async fn explicitly_selected_dreamview(&self, device: &Device) -> bool {
+        self.video_dreamview_config.lock().await.as_ref()
+            .is_some_and(|config| config.matches(device))
+            && crate::service::dreamview::has_platform_toggle(device)
+    }
+
     pub async fn device_supports_dreamview(&self, device: &Device) -> bool {
+        if self.explicitly_selected_dreamview(device).await {
+            return true;
+        }
         device.supports_dreamview()
             && self
                 .video_dreamview_centers
@@ -802,7 +825,7 @@ impl State {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Platform metadata is missing for {device}"))?;
 
-        log::info!("Using configured Platform fallback to set DreamView for {device}");
+        log::info!("Using Platform API to request DreamView for {device}; state is optimistic until observed");
         let result = client
             .set_toggle_state(info, "dreamViewToggle", enabled)
             .await;
@@ -920,9 +943,9 @@ impl State {
         )
     }
 
-    /// Toggle the hardware DreamView switch. LAN `ptReal` always runs first;
-    /// the selected cloud transport is attempted only when LAN is unavailable
-    /// or fails its configured liveness probes.
+    /// Toggle a selected video center. Real LAN discovery keeps LAN-first routing;
+    /// explicit selection also authorizes Platform control on cloud-only centers.
+    /// A successful request updates optimistic state, not an observed hardware state.
     pub async fn device_set_dreamview(
         self: &Arc<Self>,
         device: &Device,
@@ -934,7 +957,11 @@ impl State {
             );
         }
         let fallback = self.get_lan_cloud_fallback().await;
-        let order = feature_transport_order(device.lan_device.is_some(), fallback);
+        let order = if device.lan_device.is_none() && self.explicitly_selected_dreamview(device).await {
+            vec![FeatureTransport::Platform]
+        } else {
+            feature_transport_order(device.lan_device.is_some(), fallback)
+        };
         if order.is_empty() {
             anyhow::bail!(
                 "Unable to set DreamView for {device}: device was not discovered on LAN and LAN \
@@ -2384,3 +2411,4 @@ mod tests {
         );
     }
 }
+

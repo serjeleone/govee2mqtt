@@ -68,9 +68,8 @@ impl EntityList {
         // Allow HASS time to process each entity before registering the next
         let delay = tokio::time::Duration::from_millis(100);
         for e in &self.entities {
-            if let Err(err) = e.publish_config(state, client).await {
-                log::warn!("EntityList::publish_config: {err:#}");
-            }
+            // An incomplete publication must never authorize stale-topic cleanup.
+            e.publish_config(state, client).await?;
             tokio::time::sleep(delay).await;
         }
         Ok(())
@@ -119,3 +118,4 @@ mod tests {
         );
     }
 }
+

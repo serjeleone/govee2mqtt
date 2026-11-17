@@ -129,6 +129,7 @@ enum HassClientBackend {
 pub struct HassClient {
     backend: HassClientBackend,
     published_config_topics: Arc<StdMutex<BTreeSet<String>>>,
+    registration_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl HassClient {
@@ -136,6 +137,7 @@ impl HassClient {
         Self {
             backend: HassClientBackend::Mqtt(client),
             published_config_topics: Arc::new(StdMutex::new(BTreeSet::new())),
+            registration_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -144,6 +146,7 @@ impl HassClient {
         Self {
             backend: HassClientBackend::Capture(StdArc::new(ParkingMutex::new(vec![]))),
             published_config_topics: Arc::new(StdMutex::new(BTreeSet::new())),
+            registration_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -162,6 +165,7 @@ impl HassClient {
     }
 
     async fn register_with_hass(&self, state: &StateHandle) -> anyhow::Result<()> {
+        let _registration = self.registration_lock.lock().await;
         let entities = enumerate_all_entites(state).await?;
         self.clear_recorded_config_topics();
 
@@ -231,13 +235,20 @@ impl HassClient {
     async fn purge_stale_discovery_topics(&self, state: &StateHandle) -> anyhow::Result<()> {
         let current_topics = self.recorded_config_topics();
         let prior_topics = load_discovery_topics_cache();
-        let current_topic_set: BTreeSet<_> = current_topics.iter().cloned().collect();
+        let mut current_topic_set: BTreeSet<_> = current_topics.iter().cloned().collect();
+        let complete = state.one_click_sync_complete.load(std::sync::atomic::Ordering::Relaxed);
+        let topology_complete = state.virtual_topology_complete.load(std::sync::atomic::Ordering::Relaxed);
+        let preserve_topology = !topology_complete && state.get_undoc_client().await.is_some();
 
         for topic in prior_topics {
             if current_topic_set.contains(&topic) {
                 continue;
             }
 
+            if crate::service::one_click::preserve_topic(&topic, complete, preserve_topology) {
+                current_topic_set.insert(topic);
+                continue;
+            }
             log::info!("Removing stale Home Assistant discovery topic {topic}");
             self.publish_retained(&topic, "").await?;
         }
@@ -250,7 +261,7 @@ impl HassClient {
             self.publish_retained(&topic, "").await?;
         }
 
-        save_discovery_topics_cache(&current_topics)?;
+        save_discovery_topics_cache(&current_topic_set.into_iter().collect::<Vec<_>>())?;
         Ok(())
     }
 
@@ -954,6 +965,22 @@ async fn mqtt_oneclick(
     State(state): State<StateHandle>,
 ) -> anyhow::Result<()> {
     log::info!("mqtt_oneclick: {name}");
+    let is_alias = state.video_dreamview_config().await
+        .and_then(|config| config.action(&name)).is_some();
+    if is_alias {
+        let original = match state.get_undoc_client().await {
+            Some(undoc) => undoc.parse_one_clicks().await.ok()
+                .and_then(|items| items.into_iter().find(|item| item.name == name)),
+            None => None,
+        };
+        if let (Some(item), Some(iot)) = (original, state.get_iot_client().await) {
+            log::info!("Executing original One Click '{name}' through IoT");
+            return iot.activate_one_click(&item).await;
+        }
+        if crate::service::dreamview::activate_alias(&state, &name).await? {
+            return Ok(());
+        }
+    }
 
     let undoc = match state.get_undoc_client().await {
         Some(client) => client,
@@ -1415,3 +1442,4 @@ fn scene_cycle_uses_catalog_edges_when_active_scene_is_unknown() {
     assert_eq!(compute_scene_cycle_index(&scenes, Some("missing"), -1), 1);
     assert_eq!(compute_scene_cycle_index(&[], None, 1), 0);
 }
+

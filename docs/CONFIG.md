@@ -266,3 +266,8 @@ device quirks without code changes:
 |`GOVEE_POLL_INTERVAL=120`|`poll_interval`|Platform API polling interval in seconds (default: 120). Increase to 900 if you have many devices without IoT/LAN support to stay under the 10,000 req/day API limit.|
 |`GOVEE_MUSIC_PALETTE=true`|`music_palette`|Enable the experimental LAN-only custom music palette topic; see [Music Mode](MUSIC_MODE.md).|
 |`TZ=Europe/Berlin`|N/A|Use this IANA timezone in console, file, and Web UI log timestamps. The Home Assistant app inherits the Supervisor timezone automatically; standalone runs otherwise use the host system timezone.|
+
+
+## DreamView recovery
+
+See [DreamView recovery and compatibility scenes](https://github.com/serjeleone/govee2mqtt/blob/main/docs/DREAMVIEW_RECOVERY.md) for explicit video-center selection, API-key-only control, legacy scene names, discovery outage behavior, and experimental home-layout authentication.

@@ -21,6 +21,8 @@ pub struct SwitchConfig {
     pub state_topic: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled_by_default: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub optimistic: Option<bool>,
 }
 
 impl SwitchConfig {
@@ -49,6 +51,7 @@ impl SwitchConfig {
             command_topic,
             state_topic,
             enabled_by_default: None,
+            optimistic: (instance.instance == "dreamViewToggle").then_some(true),
         })
     }
 
@@ -176,6 +179,7 @@ impl MusicAutoColorSwitch {
                     id = topic_safe_id(device)
                 ),
                 enabled_by_default: Some(false),
+                optimistic: None,
             },
             device_id: device.id.to_string(),
             state: state.clone(),
@@ -323,3 +327,4 @@ mod tests {
         let _entity_trait: &dyn EntityInstance = &entity;
     }
 }
+

@@ -79,6 +79,8 @@ impl GoveeApiArguments {
 pub struct GoveeApiClient {
     key: String,
     http: reqwest::Client,
+    #[cfg(test)]
+    control_url: Option<String>,
 }
 
 impl GoveeApiClient {
@@ -90,7 +92,15 @@ impl GoveeApiClient {
         Ok(Self {
             key: key.into(),
             http,
+            #[cfg(test)]
+            control_url: None,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_control_url(mut self, url: String) -> Self {
+        self.control_url = Some(url);
+        self
     }
 
     pub async fn get_devices(&self) -> anyhow::Result<Vec<HttpDeviceInfo>> {
@@ -130,6 +140,8 @@ impl GoveeApiClient {
         value: V,
     ) -> anyhow::Result<ControlDeviceResponseCapability> {
         let url = endpoint("/router/api/v1/device/control");
+        #[cfg(test)]
+        let url = self.control_url.clone().unwrap_or(url);
         let request = ControlDeviceRequest {
             request_id: request_id(),
             payload: ControlDevicePayload {
@@ -147,6 +159,15 @@ impl GoveeApiClient {
             .request_with_json_response(Method::POST, url, &request)
             .await?;
 
+        anyhow::ensure!(resp.code == 200, "Platform control rejected the command (code {})", resp.code);
+        if capability.instance == "dreamViewToggle" {
+            anyhow::ensure!(resp.capability.instance == capability.instance,
+                "Platform response does not acknowledge dreamViewToggle");
+            if let Some(status) = resp.capability.state.get("status").and_then(|v| v.as_str()) {
+                anyhow::ensure!(status.eq_ignore_ascii_case("success"),
+                    "Platform DreamView command was not accepted");
+            }
+        }
         log::info!("control_device result: {resp:?}");
 
         Ok(resp.capability)
@@ -1724,3 +1745,4 @@ mod test {
         uuid::Uuid::parse_str(&second).unwrap();
     }
 }
+

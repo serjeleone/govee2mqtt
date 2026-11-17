@@ -1,5 +1,6 @@
 pub mod coordinator;
 pub mod device;
+pub mod dreamview;
 pub mod device_config;
 pub mod device_database;
 pub mod event_bus;
@@ -14,8 +15,10 @@ pub mod hass;
 pub mod http;
 pub mod iot;
 pub mod log_capture;
+pub mod one_click;
 pub mod quirks;
 pub mod scene_database;
 pub mod state;
 pub mod timezone;
 pub mod virtual_controls;
+

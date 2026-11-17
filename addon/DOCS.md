@@ -158,3 +158,8 @@ Enable the API key to get real-time push updates without polling. Enable LAN con
 - Repo: https://github.com/serjeleone/govee2mqtt
 - Configuration: https://github.com/serjeleone/govee2mqtt/blob/main/docs/CONFIG.md
 - FAQ: https://github.com/serjeleone/govee2mqtt/blob/main/docs/FAQ.md
+
+
+## DreamView recovery
+
+See [DreamView recovery and compatibility scenes](https://github.com/serjeleone/govee2mqtt/blob/main/docs/DREAMVIEW_RECOVERY.md) for explicit video-center selection, API-key-only control, legacy scene names, discovery outage behavior, and experimental home-layout authentication.

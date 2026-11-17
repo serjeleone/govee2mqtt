@@ -74,6 +74,11 @@ export_config lan_query_backoff_ms GOVEE_LAN_QUERY_BACKOFF_MS
 export_config lan_breaker_threshold GOVEE_LAN_BREAKER_THRESHOLD
 export_config lan_breaker_cooldown GOVEE_LAN_BREAKER_COOLDOWN
 export_config lan_cloud_fallback GOVEE_LAN_CLOUD_FALLBACK
+export_config video_dreamview_sku GOVEE_VIDEO_DREAMVIEW_SKU
+export_config video_dreamview_id GOVEE_VIDEO_DREAMVIEW_ID
+export_config dreamview_on_scene GOVEE_DREAMVIEW_ON_SCENE
+export_config dreamview_off_scene GOVEE_DREAMVIEW_OFF_SCENE
+export_config one_click_auth GOVEE_ONE_CLICK_AUTH
 export_config temperature_scale GOVEE_TEMPERATURE_SCALE
 export_config disable_effects    GOVEE_DISABLE_EFFECTS
 export_config allowed_effects    GOVEE_ALLOWED_EFFECTS
@@ -87,3 +92,4 @@ set -x
 
 cd /app
 exec /app/govee serve
+

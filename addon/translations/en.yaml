@@ -1,5 +1,20 @@
 ---
 configuration:
+  video_dreamview_sku:
+    name: Video DreamView center SKU
+    description: Explicit video sync-center model, e.g. R2A80. Also set its stable device ID. This selection authorizes Platform control when the center has no LAN API.
+  video_dreamview_id:
+    name: Video DreamView center device ID
+    description: Stable device identifier from the Platform API or device inspection, not its IP address. The SKU and ID must match the same device.
+  dreamview_on_scene:
+    name: DreamView ON compatibility scene
+    description: Exact original full name, including One-Click, group, capitalization and spaces. Default is One-Click followed by Default and Включить DreamView, separated by colon and space.
+  dreamview_off_scene:
+    name: DreamView OFF compatibility scene
+    description: Exact original full name. Default is One-Click followed by Default and Выключить DreamView, separated by colon and space. Matching names preserve the previous UUID-based discovery identity.
+  one_click_auth:
+    name: One Click authentication
+    description: Community is the default. Account and auto are experimental home-layout token strategies; auto tries Account then Community. They do not bypass verification or replace original IoT execution.
   temperature_scale:
     name: Temperature Scale
     description: >-
@@ -161,3 +176,4 @@ configuration:
       API. Default is 120. Increase to 900 if you have many devices
       without IoT or LAN support to avoid exceeding Govee's 10,000
       request/day API limit. Most users should leave this blank.
+

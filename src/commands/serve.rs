@@ -198,15 +198,10 @@ async fn refresh_virtual_control_topology(
     state: StateHandle,
     client: GoveeUndocumentedApi,
 ) {
-    let topology = async {
-        let community_token = client.login_community().await?;
-        client
-            .get_saved_one_click_shortcuts(&community_token)
-            .await
-    }
-    .await;
+    let topology = client.get_home_layout().await;
     match topology {
         Ok(components) => {
+            state.virtual_topology_complete.store(true, std::sync::atomic::Ordering::Relaxed);
             state
                 .set_video_dreamview_centers(
                     crate::service::virtual_controls::parse_video_dreamview_centers(&components),
@@ -221,7 +216,13 @@ async fn refresh_virtual_control_topology(
         Err(err) => {
             // Group topology improves aggregate state but is not required for
             // physical-device discovery or local control.
+            state.virtual_topology_complete.store(false, std::sync::atomic::Ordering::Relaxed);
             log::warn!("Unable to refresh virtual group/DreamView topology: {err:#}");
+        }
+    }
+    if let Some(hass) = state.get_hass_client().await {
+        if let Err(err) = hass.re_register(&state).await {
+            log::warn!("Unable to refresh discovery after home-layout synchronization: {err}");
         }
     }
 }
@@ -279,6 +280,9 @@ impl ServeCommand {
         crate::service::device_config::load_device_config();
         crate::service::scene_database::load_scene_databases();
         let state = Arc::new(crate::service::state::State::new());
+        state.set_video_dreamview_config(
+            crate::service::dreamview::VideoDreamViewConfig::from_env()?
+        ).await;
         let cloud_fallback = args.lan_disco_args.cloud_fallback_transport()?;
         state.set_lan_cloud_fallback(cloud_fallback).await;
         log::info!("LAN-first segment/DreamView cloud fallback transport: {cloud_fallback}");
@@ -625,3 +629,4 @@ mod tests {
         );
     }
 }
+

@@ -1031,16 +1031,22 @@ impl GoveeUndocumentedApi {
         &self,
         community_token: &str,
     ) -> anyhow::Result<Vec<OneClickComponent>> {
+        self.get_saved_one_click_shortcuts_for_auth(community_token, "one-click-shortcuts-community-v2").await
+    }
+
+    async fn get_saved_one_click_shortcuts_for_auth(
+        &self, community_token: &str, cache_key: &str,
+    ) -> anyhow::Result<Vec<OneClickComponent>> {
         cache_get(
             CacheGetOptions {
                 topic: "undoc-api",
-                key: "one-click-shortcuts",
+                key: cache_key,
                 // Group and DreamView membership can change while the bridge
                 // is running, so refresh topology more often than scene media.
                 soft_ttl: FIFTEEN_MINS,
                 hard_ttl: ONE_DAY,
                 negative_ttl: Duration::from_secs(1),
-                allow_stale: true,
+                allow_stale: false,
             },
             async {
                 let response = reqwest::Client::builder()
@@ -1066,15 +1072,40 @@ impl GoveeUndocumentedApi {
 
                 let resp: OneClickResponse = http_response_body(response).await?;
 
+                anyhow::ensure!(resp.status == 200, "Home-layout API rejected the request (status {})", resp.status);
                 Ok(CacheComputeResult::Value(resp.data.components))
             },
         )
         .await
     }
 
-    pub async fn parse_one_clicks(&self) -> anyhow::Result<Vec<ParsedOneClick>> {
+    /// Experimental account-token support is opt-in until validated on a live account.
+    pub async fn get_home_layout(&self) -> anyhow::Result<Vec<OneClickComponent>> {
+        let strategy = std::env::var("GOVEE_ONE_CLICK_AUTH").unwrap_or_else(|_| "community".into());
+        anyhow::ensure!(matches!(strategy.as_str(), "community" | "account" | "auto"),
+            "one_click_auth must be community, account, or auto");
+        if strategy != "community" {
+            let account_result = async {
+                let account = self.login_account_cached().await?;
+                self.get_saved_one_click_shortcuts_for_auth(account.token.as_str(), "one-click-shortcuts-account-v2").await
+            }.await;
+            match account_result {
+                Ok(layout) => {
+                    log::info!("Loaded home layout with Account authentication");
+                    return Ok(layout);
+                }
+                Err(_) if strategy == "auto" => {
+                    log::warn!("Account home-layout authentication failed; trying Community authentication");
+                }
+                Err(_) => anyhow::bail!("Account home-layout authentication failed; credentials and response body omitted"),
+            }
+        }
         let token = self.login_community().await?;
-        let res = self.get_saved_one_click_shortcuts(&token).await?;
+        self.get_saved_one_click_shortcuts(&token).await
+    }
+
+    pub async fn parse_one_clicks(&self) -> anyhow::Result<Vec<ParsedOneClick>> {
+        let res = self.get_home_layout().await?;
         let mut result = vec![];
 
         for group in res {
@@ -2415,3 +2446,4 @@ mod test {
         );
     }
 }
+

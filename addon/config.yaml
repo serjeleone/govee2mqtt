@@ -1,6 +1,6 @@
 name: Govee to MQTT Bridge
 image: ghcr.io/serjeleone/{arch}-govee2mqtt-addon
-version: "2026-08-25"
+version: "2026-11-17"
 slug: govee2mqtt-lite
 description: Control Govee Devices
 url: https://github.com/serjeleone/govee2mqtt
@@ -33,6 +33,11 @@ options:
   lan_cloud_fallback: "disabled"
 
 schema:
+  video_dreamview_sku: "str?"
+  video_dreamview_id: "str?"
+  dreamview_on_scene: "str?"
+  dreamview_off_scene: "str?"
+  one_click_auth: "list(community|account|auto)?"
   temperature_scale: "str?"
   govee_email: "str?"
   govee_password: "password?"
@@ -64,3 +69,4 @@ schema:
   # Increase to 900 if you have many devices without IoT/LAN support
   # to avoid exceeding the Govee API rate limit (10,000 req/day).
   poll_interval: "int?"
+

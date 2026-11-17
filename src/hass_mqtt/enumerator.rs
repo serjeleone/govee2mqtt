@@ -23,7 +23,8 @@ use crate::service::state::StateHandle;
 use crate::version_info::govee_version;
 use anyhow::Context;
 
-use uuid::Uuid;
+use std::collections::BTreeSet;
+use std::sync::atomic::Ordering;
 
 pub async fn enumerate_all_entites(state: &StateHandle) -> anyhow::Result<EntityList> {
     let mut entities = EntityList::new();
@@ -63,38 +64,48 @@ async fn enumerate_global_entities(
 }
 
 async fn enumerate_scenes(state: &StateHandle, entities: &mut EntityList) -> anyhow::Result<()> {
-    if let Some(undoc) = state.get_undoc_client().await {
-        match undoc.parse_one_clicks().await {
-            Ok(items) => {
-                for oc in items {
-                    let unique_id = format!(
-                        "gv2mqtt-one-click-{}",
-                        Uuid::new_v5(&Uuid::NAMESPACE_DNS, oc.name.as_bytes()).simple()
-                    );
-                    entities.add(SceneConfig {
-                        base: EntityConfig {
-                            availability_topic: availability_topic(),
-                            availability: vec![],
-                            availability_mode: None,
-                            name: Some(oc.name.to_string()),
-                            entity_category: None,
-                            origin: Origin::default(),
-                            device: Device::this_service(),
-                            unique_id: unique_id.clone(),
-                            device_class: None,
-                            icon: None,
-                        },
-                        command_topic: oneclick_topic(),
-                        payload_on: oc.name,
-                    });
-                }
+    let result = match state.get_undoc_client().await {
+        Some(undoc) => undoc.parse_one_clicks().await,
+        None => Err(anyhow::anyhow!("Account credentials are not configured")),
+    };
+    let complete = result.is_ok();
+    state.one_click_sync_complete.store(complete, Ordering::Relaxed);
+    let names: BTreeSet<String> = match result {
+        Ok(items) => {
+            let names: BTreeSet<_> = items.into_iter().map(|item| item.name).collect();
+            if let Err(err) = crate::service::one_click::save_names(&names) {
+                log::warn!("Unable to save One Click discovery names: {err}");
             }
-            Err(err) => {
-                log::warn!("Failed to parse one-clicks: {err:#}");
-            }
+            names
         }
+        Err(_) => {
+            log::warn!("One Click synchronization unavailable; preserving prior discovery");
+            crate::service::one_click::load_names()
+        }
+    };
+    let originals_available = complete && state.get_iot_client().await.is_some();
+    if let Some(hass) = state.get_hass_client().await {
+        hass.publish_retained(crate::service::one_click::AVAILABILITY_TOPIC,
+            if originals_available { "online" } else { "offline" }).await?;
     }
-
+    let config = state.video_dreamview_config().await;
+    let aliases = if let Some(config) = &config {
+        state.devices().await.into_iter().find(|device| config.matches(device))
+            .filter(|device| config.matches(device) && crate::service::dreamview::has_platform_toggle(device))
+            .is_some() && state.get_platform_client().await.is_some()
+    } else { false };
+    let mut all_names = names.clone();
+    if aliases {
+        let config = config.as_ref().expect("aliases require configuration");
+        all_names.insert(config.on_scene.clone());
+        all_names.insert(config.off_scene.clone());
+    }
+    for name in all_names {
+        // The original scene takes priority when fetched and executable.
+        let replacement = aliases && config.as_ref().and_then(|c| c.action(&name)).is_some()
+            && !(originals_available && names.contains(&name));
+        entities.add(crate::service::one_click::scene_config(&name, replacement));
+    }
     Ok(())
 }
 
@@ -555,3 +566,4 @@ mod tests {
         );
     }
 }
+
