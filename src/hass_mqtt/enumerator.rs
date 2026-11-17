@@ -5,7 +5,6 @@ use crate::hass_mqtt::humidifier::Humidifier;
 use crate::hass_mqtt::instance::EntityList;
 use crate::hass_mqtt::light::DeviceLight;
 use crate::hass_mqtt::number::{MusicSensitivityNumber, WorkModeNumber};
-use crate::hass_mqtt::scene::SceneConfig;
 use crate::hass_mqtt::select::{
     EnumCapabilitySelect, MusicModeSelect, SceneModeSelect, WorkModeSelect,
 };

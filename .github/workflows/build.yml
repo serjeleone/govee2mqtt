@@ -143,15 +143,22 @@ jobs:
           notes=".github/release-notes/${RELEASE_TAG}.md"
           test -s "$notes"
           ./scripts/ci-metadata.sh
-          # Fail rather than replacing an existing tag or release.
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "::error::Tag ${RELEASE_TAG} already exists"
-            exit 1
+          # Match previous lightweight date tags; never replace an existing ref.
+          # A retry may resume a partially completed publication at the same SHA.
+          existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq .object.sha 2>/dev/null || true)"
+          if [[ -n "$existing_sha" ]]; then
+            if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
+              echo "::error::Tag ${RELEASE_TAG} points to another object"
+              exit 1
+            fi
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" >/dev/null
           fi
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" >/dev/null
-          gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
-            --notes-file "$notes" --latest
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
+              --notes-file "$notes" --latest
+          fi
 
   standalone:
     name: Standalone ${{ matrix.arch }}
