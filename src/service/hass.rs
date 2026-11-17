@@ -235,20 +235,14 @@ impl HassClient {
     async fn purge_stale_discovery_topics(&self, state: &StateHandle) -> anyhow::Result<()> {
         let current_topics = self.recorded_config_topics();
         let prior_topics = load_discovery_topics_cache();
-        let mut current_topic_set: BTreeSet<_> = current_topics.iter().cloned().collect();
+        let current_topic_set: BTreeSet<_> = current_topics.iter().cloned().collect();
         let complete = state.one_click_sync_complete.load(std::sync::atomic::Ordering::Relaxed);
         let topology_complete = state.virtual_topology_complete.load(std::sync::atomic::Ordering::Relaxed);
         let preserve_topology = !topology_complete && state.get_undoc_client().await.is_some();
-
-        for topic in prior_topics {
-            if current_topic_set.contains(&topic) {
-                continue;
-            }
-
-            if crate::service::one_click::preserve_topic(&topic, complete, preserve_topology) {
-                current_topic_set.insert(topic);
-                continue;
-            }
+        let (current_topic_set, stale_topics) = crate::service::one_click::reconcile_discovery(
+            &prior_topics, &current_topic_set, complete, preserve_topology,
+        );
+        for topic in stale_topics {
             log::info!("Removing stale Home Assistant discovery topic {topic}");
             self.publish_retained(&topic, "").await?;
         }

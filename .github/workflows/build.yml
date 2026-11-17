@@ -132,7 +132,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Publish annotated date tag and release
+      - name: Publish date tag and release
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -148,11 +148,8 @@ jobs:
             echo "::error::Tag ${RELEASE_TAG} already exists"
             exit 1
           fi
-          tag_sha="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
-            -f tag="$RELEASE_TAG" -f message="Release $RELEASE_TAG" \
-            -f object="$GITHUB_SHA" -f type=commit --jq .sha)"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref="refs/tags/$RELEASE_TAG" -f sha="$tag_sha" >/dev/null
+            -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" >/dev/null
           gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
             --notes-file "$notes" --latest
 
