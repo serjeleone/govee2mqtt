@@ -58,7 +58,7 @@ schema:
   # Override the Govee Home app version string sent in API headers.
   # Set this when login fails with "The app version is too low".
   govee_app_version: "str?"
-  # Experimental LAN-only custom music palette commands.
+  # LAN-only custom music palette commands.
   music_palette: "bool?"
   # Advanced: polling interval in seconds (default 120).
   # Increase to 900 if you have many devices without IoT/LAN support

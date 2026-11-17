@@ -67,7 +67,9 @@ async fn enumerate_scenes(state: &StateHandle, entities: &mut EntityList) -> any
         None => Err(anyhow::anyhow!("Account credentials are not configured")),
     };
     let complete = result.is_ok();
-    state.one_click_sync_complete.store(complete, Ordering::Relaxed);
+    state
+        .one_click_sync_complete
+        .store(complete, Ordering::Relaxed);
     let names: BTreeSet<String> = match result {
         Ok(items) => {
             let names: BTreeSet<_> = items.into_iter().map(|item| item.name).collect();
@@ -81,11 +83,19 @@ async fn enumerate_scenes(state: &StateHandle, entities: &mut EntityList) -> any
             crate::service::one_click::load_names()
         }
     };
-    let originals_available = complete && state.iot_connected.load(Ordering::Relaxed)
+    let originals_available = complete
+        && state.iot_connected.load(Ordering::Relaxed)
         && state.get_iot_client().await.is_some();
     if let Some(hass) = state.get_hass_client().await {
-        hass.publish_retained(crate::service::one_click::AVAILABILITY_TOPIC,
-            if originals_available { "online" } else { "offline" }).await?;
+        hass.publish_retained(
+            crate::service::one_click::AVAILABILITY_TOPIC,
+            if originals_available {
+                "online"
+            } else {
+                "offline"
+            },
+        )
+        .await?;
     }
     for name in names {
         entities.add(crate::service::one_click::scene_config(&name));
@@ -288,7 +298,6 @@ pub async fn enumerate_entities_for_device<'a>(
                 }
             }
         }
-
     }
 
     if supports_video_dreamview && !has_dreamview_switch {
@@ -550,4 +559,3 @@ mod tests {
         );
     }
 }
-

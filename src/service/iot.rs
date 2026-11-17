@@ -400,8 +400,7 @@ pub async fn start_iot_client(
     } else {
         format!("AP/{}/{}", *acct.account_id, uuid::Uuid::new_v4().simple())
     };
-    let client = mosquitto_rs::Client::with_id(&mqtt_id, true)
-    .context("new client")?;
+    let client = mosquitto_rs::Client::with_id(&mqtt_id, true).context("new client")?;
     client
         .configure_tls(
             Some(&args.amazon_root_ca),
@@ -657,4 +656,3 @@ async fn run_iot_subscriber(
     }
     Ok(())
 }
-

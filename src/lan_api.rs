@@ -113,7 +113,9 @@ pub fn truthy(s: &str) -> anyhow::Result<bool> {
 
 impl LanDiscoArguments {
     pub fn control_mode(&self) -> anyhow::Result<ControlMode> {
-        if let Some(mode) = self.control_mode { return Ok(mode); }
+        if let Some(mode) = self.control_mode {
+            return Ok(mode);
+        }
         match opt_env_var::<String>("GOVEE_CONTROL_MODE")? {
             Some(value) => ControlMode::parse_config(&value),
             None => Ok(ControlMode::default()),
@@ -1263,7 +1265,6 @@ mod tests {
         args.control_mode = Some(ControlMode::Cloud);
         assert_eq!(args.control_mode().unwrap(), ControlMode::Cloud);
         std::env::remove_var("GOVEE_CONTROL_MODE");
-
     }
 
     #[test]
@@ -1674,4 +1675,3 @@ mod tests {
         assert_eq!(datagrams, 0, "open breaker must send nothing");
     }
 }
-

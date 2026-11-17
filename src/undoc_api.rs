@@ -1108,7 +1108,7 @@ impl GoveeUndocumentedApi {
     }
 
     async fn get_saved_one_click_shortcuts_for_auth(
-        &self, community_token: &str, _cache_key: &str,
+        &self, community_token: &str, auth_source: &str,
     ) -> anyhow::Result<Vec<OneClickComponent>> {
         let cache_key = format!("home-layout-{}", Uuid::new_v5(&Uuid::NAMESPACE_DNS, community_token.as_bytes()).simple());
         cache_get(
@@ -1140,7 +1140,7 @@ impl GoveeUndocumentedApi {
                     .send()
                     .await?;
 
-                if response.status() == reqwest::StatusCode::UNAUTHORIZED && self.access_token.is_none() {
+                if response.status() == reqwest::StatusCode::UNAUTHORIZED && auth_source == "one-click-shortcuts-community-v2" {
                     self.invalidate_community_login();
                 }
 

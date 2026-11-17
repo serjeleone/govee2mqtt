@@ -20,8 +20,12 @@ pub fn scene_config(name: &str) -> SceneConfig {
         base: EntityConfig {
             availability_topic: String::new(),
             availability: vec![
-                AvailabilityEntry { topic: availability_topic() },
-                AvailabilityEntry { topic: AVAILABILITY_TOPIC.to_string() },
+                AvailabilityEntry {
+                    topic: availability_topic(),
+                },
+                AvailabilityEntry {
+                    topic: AVAILABILITY_TOPIC.to_string(),
+                },
             ],
             availability_mode: Some("all".to_string()),
             name: Some(name.to_string()),

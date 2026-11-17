@@ -236,11 +236,18 @@ impl HassClient {
         let current_topics = self.recorded_config_topics();
         let prior_topics = load_discovery_topics_cache();
         let current_topic_set: BTreeSet<_> = current_topics.iter().cloned().collect();
-        let complete = state.one_click_sync_complete.load(std::sync::atomic::Ordering::Relaxed);
-        let topology_complete = state.virtual_topology_complete.load(std::sync::atomic::Ordering::Relaxed);
+        let complete = state
+            .one_click_sync_complete
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let topology_complete = state
+            .virtual_topology_complete
+            .load(std::sync::atomic::Ordering::Relaxed);
         let preserve_topology = !topology_complete && state.get_undoc_client().await.is_some();
         let (current_topic_set, stale_topics) = crate::service::one_click::reconcile_discovery(
-            &prior_topics, &current_topic_set, complete, preserve_topology,
+            &prior_topics,
+            &current_topic_set,
+            complete,
+            preserve_topology,
         );
         for topic in stale_topics {
             log::info!("Removing stale Home Assistant discovery topic {topic}");
@@ -1004,7 +1011,13 @@ async fn mqtt_oneclick(
     };
 
     let iot = match state.get_iot_client().await {
-        Some(client) if state.iot_connected.load(std::sync::atomic::Ordering::Relaxed) => client,
+        Some(client)
+            if state
+                .iot_connected
+                .load(std::sync::atomic::Ordering::Relaxed) =>
+        {
+            client
+        }
         _ => {
             let msg = "One-click failed: AWS IoT client is not connected. \
                        One Click requires an active account IoT connection.";
@@ -1419,4 +1432,3 @@ fn scene_cycle_uses_catalog_edges_when_active_scene_is_unknown() {
     assert_eq!(compute_scene_cycle_index(&scenes, Some("missing"), -1), 1);
     assert_eq!(compute_scene_cycle_index(&[], None, 1), 0);
 }
-

@@ -146,7 +146,7 @@ configuration:
   music_palette:
     name: Enable Music Palette Commands
     description: >-
-      Enable the experimental LAN-only MQTT command for custom music-mode
+      Enable the LAN-only MQTT command for custom music-mode
       color palettes. Leave disabled unless your SKU is listed in
       docs/MUSIC_MODE.md and LAN Control is enabled in the Govee app.
   poll_interval:

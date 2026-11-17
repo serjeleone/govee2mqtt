@@ -560,4 +560,3 @@ fn load_quirks() -> HashMap<String, Quirk> {
 pub fn resolve_quirk(sku: &str) -> Option<&'static Quirk> {
     QUIRKS.get(sku)
 }
-

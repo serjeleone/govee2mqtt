@@ -2,18 +2,17 @@ use crate::ble::{
     Base64HexBytes, SetHumidifierMode, SetHumidifierNightlightParams, SetMusicPalette,
 };
 use crate::lan_api::{
-    dreamview_ptreal_commands, segment_color_ptreal_commands, Client as LanClient,
-    DeviceColor, DeviceStatus as LanDeviceStatus, LanDevice,
+    dreamview_ptreal_commands, segment_color_ptreal_commands, Client as LanClient, DeviceColor,
+    DeviceStatus as LanDeviceStatus, LanDevice,
 };
 use crate::platform_api::{DeviceCapability, DeviceType, GoveeApiClient, HttpRequestFailed};
-use crate::service::coordinator::Coordinator;
 use crate::service::control::ControlMode;
+use crate::service::coordinator::Coordinator;
 use crate::service::device::Device;
 use crate::service::hass::{topic_safe_id, topic_safe_string, HassClient};
 use crate::service::iot::IotClient;
 use crate::service::virtual_controls::{
-    aggregate_virtual_state, definition_matches_device, VirtualControlDefinition,
-    VirtualDeviceKind,
+    aggregate_virtual_state, definition_matches_device, VirtualControlDefinition, VirtualDeviceKind,
 };
 use crate::temperature::{TemperatureScale, TemperatureValue};
 use crate::undoc_api::{GoveeUndocumentedApi, LightEffectCategory};
@@ -108,12 +107,23 @@ fn feature_transport_order(has_lan: bool, mode: ControlMode) -> Vec<FeatureTrans
     scene_transport_order(has_lan, true, true, mode)
 }
 
-fn scene_transport_order(has_lan: bool, has_platform: bool, has_iot: bool, mode: ControlMode) -> Vec<FeatureTransport> {
+fn scene_transport_order(
+    has_lan: bool,
+    has_platform: bool,
+    has_iot: bool,
+    mode: ControlMode,
+) -> Vec<FeatureTransport> {
     let mut order = vec![];
-    if mode.allows_lan() && has_lan { order.push(FeatureTransport::Lan); }
+    if mode.allows_lan() && has_lan {
+        order.push(FeatureTransport::Lan);
+    }
     if mode.allows_cloud() {
-        if has_platform { order.push(FeatureTransport::Platform); }
-        if has_iot { order.push(FeatureTransport::Iot); }
+        if has_platform {
+            order.push(FeatureTransport::Platform);
+        }
+        if has_iot {
+            order.push(FeatureTransport::Iot);
+        }
     }
     order
 }
@@ -132,7 +142,8 @@ impl State {
     }
 
     pub fn set_control_mode(&self, mode: ControlMode) {
-        self.control_mode.store(mode as u8, std::sync::atomic::Ordering::Relaxed);
+        self.control_mode
+            .store(mode as u8, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn control_mode(&self) -> ControlMode {
@@ -164,16 +175,18 @@ impl State {
     }
 
     pub async fn device_supports_dreamview(&self, device: &Device) -> bool {
-        device.supports_dreamview() && (
-            device.resolve_quirk().is_some_and(|quirk| quirk.supports_dreamview)
-            || self.video_dreamview_centers.lock().await.contains(&device.id.to_ascii_lowercase())
-        )
+        device.supports_dreamview()
+            && (device
+                .resolve_quirk()
+                .is_some_and(|quirk| quirk.supports_dreamview)
+                || self
+                    .video_dreamview_centers
+                    .lock()
+                    .await
+                    .contains(&device.id.to_ascii_lowercase()))
     }
 
-    pub async fn virtual_control_by_id(
-        &self,
-        id: &str,
-    ) -> Option<VirtualControlDefinition> {
+    pub async fn virtual_control_by_id(&self, id: &str) -> Option<VirtualControlDefinition> {
         self.virtual_controls
             .lock()
             .await
@@ -426,8 +439,12 @@ impl State {
         let changed = self.iot_connected.swap(connected, Ordering::Relaxed) != connected;
         if let Some(hass) = self.get_hass_client().await {
             let available = connected && self.one_click_sync_complete.load(Ordering::Relaxed);
-            let _ = hass.publish_retained(crate::service::one_click::AVAILABILITY_TOPIC,
-                if available { "online" } else { "offline" }).await;
+            let _ = hass
+                .publish_retained(
+                    crate::service::one_click::AVAILABILITY_TOPIC,
+                    if available { "online" } else { "offline" },
+                )
+                .await;
             if changed {
                 let state = self.clone();
                 tokio::spawn(async move {
@@ -444,7 +461,13 @@ impl State {
     }
 
     pub async fn get_iot_client(&self) -> Option<IotClient> {
-        if !self.control_mode().allows_cloud() || !self.iot_connected.load(std::sync::atomic::Ordering::Relaxed) { return None; }
+        if !self.control_mode().allows_cloud()
+            || !self
+                .iot_connected
+                .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return None;
+        }
         self.iot_client.lock().await.clone()
     }
 
@@ -453,7 +476,9 @@ impl State {
     }
 
     pub async fn get_lan_client(&self) -> Option<LanClient> {
-        if !self.control_mode().allows_lan() { return None; }
+        if !self.control_mode().allows_lan() {
+            return None;
+        }
         self.lan_client.lock().await.clone()
     }
 
@@ -462,7 +487,9 @@ impl State {
     }
 
     pub async fn get_platform_client(&self) -> Option<GoveeApiClient> {
-        if !self.control_mode().allows_cloud() { return None; }
+        if !self.control_mode().allows_cloud() {
+            return None;
+        }
         self.platform_client.lock().await.clone()
     }
 
@@ -499,7 +526,9 @@ impl State {
     }
 
     pub async fn get_undoc_client(&self) -> Option<GoveeUndocumentedApi> {
-        if !self.control_mode().allows_cloud() { return None; }
+        if !self.control_mode().allows_cloud() {
+            return None;
+        }
         self.undoc_client.lock().await.clone()
     }
 
@@ -776,9 +805,10 @@ impl State {
                 "Platform API cannot safely turn off one segment; LAN or IoT ptReal is required"
             );
         }
-        let client = self.get_platform_client().await.ok_or_else(|| {
-            anyhow::anyhow!("Platform API is unavailable")
-        })?;
+        let client = self
+            .get_platform_client()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Platform API is unavailable"))?;
         let info = device
             .http_device_info
             .as_ref()
@@ -786,7 +816,9 @@ impl State {
 
         log::info!("Using Platform API for {device} segment {segment}");
         if let Some(brightness) = brightness {
-            let result = client.set_segment_brightness(info, segment, brightness).await;
+            let result = client
+                .set_segment_brightness(info, segment, brightness)
+                .await;
             self.observe_platform_result(device, result).await?;
         }
         if let Some(color) = color {
@@ -803,9 +835,10 @@ impl State {
         device: &Device,
         enabled: bool,
     ) -> anyhow::Result<()> {
-        let client = self.get_platform_client().await.ok_or_else(|| {
-            anyhow::anyhow!("Platform API is unavailable")
-        })?;
+        let client = self
+            .get_platform_client()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Platform API is unavailable"))?;
         let info = device
             .http_device_info
             .as_ref()
@@ -819,10 +852,8 @@ impl State {
         Ok(())
     }
 
-    /// Set an RGBIC segment with LAN as the mandatory first transport.
-    /// Independent segment brightness is not part of the verified LAN packet;
-    /// brightness-only commands therefore require an explicitly selected
-    /// Platform fallback.
+    /// Set a segment through the selected control mode.
+    /// Independent segment brightness requires the Platform capability.
     pub async fn device_set_segment(
         self: &Arc<Self>,
         device: &Device,
@@ -875,18 +906,14 @@ impl State {
                 FeatureTransport::Iot => match local_color {
                     Some(color) => match self.iot_feature_path(device).await {
                         Some((iot, entry)) => {
-                            log::info!(
-                                "Using IoT API for {device} segment {segment}"
-                            );
+                            log::info!("Using IoT API for {device} segment {segment}");
                             iot.send_real(
                                 entry,
                                 segment_color_ptreal_commands(segment, color.r, color.g, color.b),
                             )
                             .await
                         }
-                        None => Err(anyhow::anyhow!(
-                            "IoT API is unavailable for {device}"
-                        )),
+                        None => Err(anyhow::anyhow!("IoT API is unavailable for {device}")),
                     },
                     None => Err(anyhow::anyhow!(
                         "independent segment brightness is not supported by the IoT ptReal path"
@@ -929,9 +956,8 @@ impl State {
         )
     }
 
-    /// Toggle a selected video center. Real LAN discovery keeps LAN-first routing;
-    /// explicit selection also authorizes Platform control on cloud-only centers.
-    /// A successful request updates optimistic state, not an observed hardware state.
+    /// Toggle an automatically identified video center using the selected mode.
+    /// Accepted commands update optimistic state until device status is observed.
     pub async fn device_set_dreamview(
         self: &Arc<Self>,
         device: &Device,
@@ -968,9 +994,7 @@ impl State {
                         iot.send_real(entry, dreamview_ptreal_commands(enabled))
                             .await
                     }
-                    None => Err(anyhow::anyhow!(
-                        "IoT API is unavailable for {device}"
-                    )),
+                    None => Err(anyhow::anyhow!("IoT API is unavailable for {device}")),
                 },
                 FeatureTransport::Platform => {
                     self.send_platform_dreamview_command(device, enabled).await
@@ -1014,10 +1038,16 @@ impl State {
         enabled: bool,
     ) -> anyhow::Result<()> {
         if definition.kind != VirtualDeviceKind::MusicDreamView {
-            anyhow::bail!("{} is not an API-backed Music DreamView scene", definition.name);
+            anyhow::bail!(
+                "{} is not an API-backed Music DreamView scene",
+                definition.name
+            );
         }
         let center_id = definition.control_device_id.as_deref().ok_or_else(|| {
-            anyhow::anyhow!("Music DreamView scene {} has no sync center", definition.name)
+            anyhow::anyhow!(
+                "Music DreamView scene {} has no sync center",
+                definition.name
+            )
         })?;
         let center = self.resolve_device(center_id).await.ok_or_else(|| {
             anyhow::anyhow!(
@@ -1025,7 +1055,10 @@ impl State {
                 definition.name
             )
         })?;
-        if center.get_capability_by_instance("dreamViewToggle").is_none() {
+        if center
+            .get_capability_by_instance("dreamViewToggle")
+            .is_none()
+        {
             anyhow::bail!(
                 "Music DreamView sync center {center} does not advertise dreamViewToggle"
             );
@@ -1035,7 +1068,8 @@ impl State {
             "Using Platform API to set Music DreamView scene {} through {center}",
             definition.name
         );
-        self.send_platform_dreamview_command(&center, enabled).await?;
+        self.send_platform_dreamview_command(&center, enabled)
+            .await?;
         self.device_mut(&center.sku, &center.id)
             .await
             .set_dreamview_enabled(enabled);
@@ -1067,8 +1101,6 @@ impl State {
         device: &Device,
         on: bool,
     ) -> anyhow::Result<()> {
-
-
         let instance_name = device
             .get_light_power_toggle_instance_name()
             .ok_or_else(|| {
@@ -1081,17 +1113,17 @@ impl State {
         if self.control_mode().allows_lan() {
             if let Some(lan_dev) = &device.lan_device {
                 let result: anyhow::Result<()> = async {
-            log::info!("Using LAN API to set {device} light power state");
-            lan_dev.send_turn(on).await?;
-            self.poll_lan_api(lan_dev, |status| status.on == on).await?;
-            if !on {
-                self.device_mut(&device.sku, &device.id)
-                    .await
-                    .set_active_scene(None);
-            }
-            return Ok(());
-        
-                }.await;
+                    log::info!("Using LAN API to set {device} light power state");
+                    lan_dev.send_turn(on).await?;
+                    self.poll_lan_api(lan_dev, |status| status.on == on).await?;
+                    if !on {
+                        self.device_mut(&device.sku, &device.id)
+                            .await
+                            .set_active_scene(None);
+                    }
+                    return Ok(());
+                }
+                .await;
                 match result {
                     Ok(()) => return Ok(()),
                     Err(err) if self.control_mode().allows_cloud() => {
@@ -1145,17 +1177,17 @@ impl State {
         if self.control_mode().allows_lan() {
             if let Some(lan_dev) = &device.lan_device {
                 let result: anyhow::Result<()> = async {
-            log::info!("Using LAN API to set {device} power state");
-            lan_dev.send_turn(on).await?;
-            self.poll_lan_api(lan_dev, |status| status.on == on).await?;
-            if !on {
-                self.device_mut(&device.sku, &device.id)
-                    .await
-                    .set_active_scene(None);
-            }
-            return Ok(());
-        
-                }.await;
+                    log::info!("Using LAN API to set {device} power state");
+                    lan_dev.send_turn(on).await?;
+                    self.poll_lan_api(lan_dev, |status| status.on == on).await?;
+                    if !on {
+                        self.device_mut(&device.sku, &device.id)
+                            .await
+                            .set_active_scene(None);
+                    }
+                    return Ok(());
+                }
+                .await;
                 match result {
                     Ok(()) => return Ok(()),
                     Err(err) if self.control_mode().allows_cloud() => {
@@ -1199,18 +1231,16 @@ impl State {
         device: &Device,
         percent: u8,
     ) -> anyhow::Result<()> {
-
-
         if self.control_mode().allows_lan() {
             if let Some(lan_dev) = &device.lan_device {
                 let result: anyhow::Result<()> = async {
-            log::info!("Using LAN API to set {device} brightness");
-            lan_dev.send_brightness(percent).await?;
-            self.poll_lan_api(lan_dev, |status| status.brightness == percent)
-                .await?;
-            return Ok(());
-        
-                }.await;
+                    log::info!("Using LAN API to set {device} brightness");
+                    lan_dev.send_brightness(percent).await?;
+                    self.poll_lan_api(lan_dev, |status| status.brightness == percent)
+                        .await?;
+                    return Ok(());
+                }
+                .await;
                 match result {
                     Ok(()) => return Ok(()),
                     Err(err) if self.control_mode().allows_cloud() => {
@@ -1256,16 +1286,16 @@ impl State {
         if self.control_mode().allows_lan() {
             if let Some(lan_dev) = &device.lan_device {
                 let result: anyhow::Result<()> = async {
-            log::info!("Using LAN API to set {device} color temperature");
-            lan_dev.send_color_temperature_kelvin(kelvin).await?;
-            self.poll_lan_api(lan_dev, |status| status.color_temperature_kelvin == kelvin)
-                .await?;
-            self.device_mut(&device.sku, &device.id)
-                .await
-                .set_active_scene(None);
-            return Ok(());
-        
-                }.await;
+                    log::info!("Using LAN API to set {device} color temperature");
+                    lan_dev.send_color_temperature_kelvin(kelvin).await?;
+                    self.poll_lan_api(lan_dev, |status| status.color_temperature_kelvin == kelvin)
+                        .await?;
+                    self.device_mut(&device.sku, &device.id)
+                        .await
+                        .set_active_scene(None);
+                    return Ok(());
+                }
+                .await;
                 match result {
                     Ok(()) => return Ok(()),
                     Err(err) if self.control_mode().allows_cloud() => {
@@ -1360,22 +1390,20 @@ impl State {
         g: u8,
         b: u8,
     ) -> anyhow::Result<()> {
-
-
         if self.control_mode().allows_lan() {
             if let Some(lan_dev) = &device.lan_device {
                 let result: anyhow::Result<()> = async {
-            let color = crate::lan_api::DeviceColor { r, g, b };
-            log::info!("Using LAN API to set {device} color");
-            lan_dev.send_color_rgb(color).await?;
-            self.poll_lan_api(lan_dev, |status| status.color == color)
-                .await?;
-            self.device_mut(&device.sku, &device.id)
-                .await
-                .set_active_scene(None);
-            return Ok(());
-        
-                }.await;
+                    let color = crate::lan_api::DeviceColor { r, g, b };
+                    log::info!("Using LAN API to set {device} color");
+                    lan_dev.send_color_rgb(color).await?;
+                    self.poll_lan_api(lan_dev, |status| status.color == color)
+                        .await?;
+                    self.device_mut(&device.sku, &device.id)
+                        .await
+                        .set_active_scene(None);
+                    return Ok(());
+                }
+                .await;
                 match result {
                     Ok(()) => return Ok(()),
                     Err(err) if self.control_mode().allows_cloud() => {
@@ -1571,14 +1599,16 @@ impl State {
             }
         }
 
-        let undoc_categories = if !self.control_mode().allows_cloud() { vec![] } else { match GoveeUndocumentedApi::get_scenes_for_device(&device.sku).await
-        {
-            Ok(categories) => categories,
-            Err(err) => {
-                log::trace!("Undocumented scene catalog unavailable for {device}: {err:#}");
-                vec![]
+        let undoc_categories = if !self.control_mode().allows_cloud() {
+            vec![]
+        } else {
+            match GoveeUndocumentedApi::get_scenes_for_device(&device.sku).await {
+                Ok(categories) => categories,
+                Err(err) => {
+                    log::trace!("Undocumented scene catalog unavailable for {device}: {err:#}");
+                    vec![]
+                }
             }
-        }
         };
         let decoded_names = crate::service::scene_database::scene_names_for_sku(&device.sku);
         let categories =
@@ -1690,17 +1720,13 @@ impl State {
         scene: &str,
     ) -> anyhow::Result<()> {
         let avoid_platform_api = device.avoid_platform_api();
-        let decoded_commands =
-            crate::service::scene_database::scene_commands(&device.sku, scene);
+        let decoded_commands = crate::service::scene_database::scene_commands(&device.sku, scene);
         let platform_path = if avoid_platform_api {
             None
         } else {
-            self.get_platform_client().await.and_then(|client| {
-                device
-                    .http_device_info
-                    .as_ref()
-                    .map(|info| (client, info))
-            })
+            self.get_platform_client()
+                .await
+                .and_then(|client| device.http_device_info.as_ref().map(|info| (client, info)))
         };
         let iot_path = if decoded_commands.is_some() {
             self.iot_for_device(device).await
@@ -1725,12 +1751,8 @@ impl State {
             let result = match transport {
                 FeatureTransport::Lan => {
                     if let Some(commands) = decoded_commands.clone() {
-                        self.send_lan_feature_command(
-                            device,
-                            &format!("scene {scene}"),
-                            commands,
-                        )
-                        .await
+                        self.send_lan_feature_command(device, &format!("scene {scene}"), commands)
+                            .await
                     } else {
                         let lan_device = device
                             .lan_device
@@ -1742,7 +1764,9 @@ impl State {
                         let result = if self.control_mode().allows_cloud() {
                             lan_device.set_scene_by_name(scene).await
                         } else {
-                            Err(anyhow::anyhow!("Scene has no local encoding in LAN only mode"))
+                            Err(anyhow::anyhow!(
+                                "Scene has no local encoding in LAN only mode"
+                            ))
                         };
                         match result {
                             Ok(()) => async {
@@ -1794,9 +1818,7 @@ impl State {
                     let commands = decoded_commands
                         .clone()
                         .expect("IoT scene path requires decoded commands");
-                    log::info!(
-                        "Using IoT API (decoded database) to set {device} to scene {scene}"
-                    );
+                    log::info!("Using IoT API (decoded database) to set {device} to scene {scene}");
                     iot.send_real(entry, commands).await
                 }
             };
@@ -1848,9 +1870,7 @@ impl State {
             if let Some(client) = self.get_platform_client().await {
                 if let Some(info) = &device.http_device_info {
                     log::info!("Using Platform API to set {device} {instance} to {option}");
-                    let result = client
-                        .set_capability_by_name(info, instance, option)
-                        .await;
+                    let result = client.set_capability_by_name(info, instance, option).await;
                     self.observe_platform_result(device, result).await?;
                     self.device_mut(&device.sku, &device.id)
                         .await
@@ -1979,7 +1999,11 @@ impl State {
     ) -> anyhow::Result<()> {
         let encoded = Base64HexBytes::encode_for_sku("Generic:Light", command)?.base64();
 
-        if let Some(lan_dev) = device.lan_device.as_ref().filter(|_| self.control_mode().allows_lan()) {
+        if let Some(lan_dev) = device
+            .lan_device
+            .as_ref()
+            .filter(|_| self.control_mode().allows_lan())
+        {
             log::info!("Using LAN API to set {device} music palette");
             lan_dev.send_real(encoded.clone()).await?;
             sleep(Duration::from_millis(300)).await;
@@ -2201,8 +2225,8 @@ mod tests {
         sort_and_dedup_scenes, FeatureTransport, State,
     };
     use crate::lan_api::LanDevice;
-    use crate::service::control::ControlMode;
     use crate::platform_api::HttpDeviceInfo;
+    use crate::service::control::ControlMode;
     use crate::undoc_api::{LightEffectCategory, LightEffectEntry, LightEffectScene};
     use serde_json::json;
     use std::net::{IpAddr, Ipv4Addr};
@@ -2210,11 +2234,27 @@ mod tests {
 
     #[test]
     fn all_transport_orders_follow_the_selected_mode() {
-        assert_eq!(feature_transport_order(true, ControlMode::LanFirst), vec![FeatureTransport::Lan, FeatureTransport::Platform, FeatureTransport::Iot]);
-        assert_eq!(feature_transport_order(true, ControlMode::LanOnly), vec![FeatureTransport::Lan]);
-        assert_eq!(feature_transport_order(true, ControlMode::Cloud), vec![FeatureTransport::Platform, FeatureTransport::Iot]);
+        assert_eq!(
+            feature_transport_order(true, ControlMode::LanFirst),
+            vec![
+                FeatureTransport::Lan,
+                FeatureTransport::Platform,
+                FeatureTransport::Iot
+            ]
+        );
+        assert_eq!(
+            feature_transport_order(true, ControlMode::LanOnly),
+            vec![FeatureTransport::Lan]
+        );
+        assert_eq!(
+            feature_transport_order(true, ControlMode::Cloud),
+            vec![FeatureTransport::Platform, FeatureTransport::Iot]
+        );
         assert!(feature_transport_order(false, ControlMode::LanOnly).is_empty());
-        assert_eq!(scene_transport_order(true, true, false, ControlMode::Cloud), vec![FeatureTransport::Platform]);
+        assert_eq!(
+            scene_transport_order(true, true, false, ControlMode::Cloud),
+            vec![FeatureTransport::Platform]
+        );
         assert_eq!(State::new().control_mode(), ControlMode::LanFirst);
     }
 
@@ -2412,4 +2452,3 @@ mod tests {
         );
     }
 }
-

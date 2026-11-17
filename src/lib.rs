@@ -45,10 +45,17 @@ impl Args {
     pub async fn run(&self) -> anyhow::Result<()> {
         let mode = self.lan_disco_args.control_mode()?;
         match &self.cmd {
-            SubCommand::LanControl(_) | SubCommand::LanDisco(_) if !mode.allows_lan() =>
-                anyhow::bail!("LAN operations are disabled in Cloud mode"),
-            SubCommand::ListHttp(_) | SubCommand::HttpControl(_) | SubCommand::Undoc(_) | SubCommand::List(_) if !mode.allows_cloud() =>
-                anyhow::bail!("Cloud operations are disabled in LAN only mode"),
+            SubCommand::LanControl(_) | SubCommand::LanDisco(_) if !mode.allows_lan() => {
+                anyhow::bail!("LAN operations are disabled in Cloud mode")
+            }
+            SubCommand::ListHttp(_)
+            | SubCommand::HttpControl(_)
+            | SubCommand::Undoc(_)
+            | SubCommand::List(_)
+                if !mode.allows_cloud() =>
+            {
+                anyhow::bail!("Cloud operations are disabled in LAN only mode")
+            }
             _ => {}
         }
         match &self.cmd {
@@ -69,7 +76,9 @@ where
 {
     use anyhow::Context;
 
-    let credential = ["PASSWORD", "TOKEN", "KEY", "2FA_CODE"].iter().any(|part| name.contains(part));
+    let credential = ["PASSWORD", "TOKEN", "KEY", "2FA_CODE"]
+        .iter()
+        .any(|part| name.contains(part));
     let log_sensitive_data = !credential || undoc_api::should_log_sensitive_data();
 
     match std::env::var(name) {
@@ -108,4 +117,3 @@ where
         Err(err) => anyhow::bail!("${name} is invalid: {err:#}"),
     }
 }
-

@@ -36,7 +36,7 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
   battery/Wi-Fi sensors for supported devices.
 * Bounded LAN retries and a per-device polling circuit breaker for congested or
   partially unavailable networks.
-* Experimental LAN music-mode palettes for explicitly mapped device models.
+* LAN music-mode palettes for explicitly mapped device models.
 * Graceful shutdown with proper MQTT offline status publishing.
 * Persistent device database for offline/degraded mode operation.
 * Log timestamps use the Home Assistant or host system timezone.
@@ -57,7 +57,7 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
 |Categorized Scene Catalog|API Key and/or IoT|Scene metadata, current scene, and next/previous controls in Home Assistant|
 |Fan Control|API Key and/or IoT|Power, stepped speed, and supported preset modes as an HA fan entity|
 |Air Quality and Diagnostics|Device dependent|CO2, PM2.5, PM10, battery, and Wi-Fi entities when reported by the device|
-|Custom Music Palettes|LAN + opt-in setting|Experimental multi-colour music mode for explicitly mapped SKUs|
+|Custom Music Palettes|LAN + opt-in setting|Custom multi-colour music mode for explicitly mapped SKUs|
 
 ### API Channels
 

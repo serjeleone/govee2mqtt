@@ -1,6 +1,6 @@
+pub mod control;
 pub mod coordinator;
 pub mod device;
-pub mod control;
 pub mod device_config;
 pub mod device_database;
 pub mod event_bus;
@@ -21,4 +21,3 @@ pub mod scene_database;
 pub mod state;
 pub mod timezone;
 pub mod virtual_controls;
-

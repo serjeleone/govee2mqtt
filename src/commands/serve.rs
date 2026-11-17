@@ -119,7 +119,9 @@ async fn poll_single_device(state: &StateHandle, device: &Device) -> anyhow::Res
 /// its own sequential loop ensures a slow cloud request can never delay LAN
 /// status or local control, and spaces requests out to avoid API bursts.
 async fn periodic_cloud_status_probe(state: StateHandle) {
-    if !state.control_mode().allows_cloud() { return; }
+    if !state.control_mode().allows_cloud() {
+        return;
+    }
     // Let initial LAN discovery and the first local state poll settle before
     // checking the optional secondary transport.
     sleep(Duration::from_secs(25)).await;
@@ -198,29 +200,30 @@ async fn enumerate_devices_via_platform_api(
     Ok(())
 }
 
-async fn refresh_virtual_control_topology(
-    state: StateHandle,
-    client: GoveeUndocumentedApi,
-) {
+async fn refresh_virtual_control_topology(state: StateHandle, client: GoveeUndocumentedApi) {
     let topology = client.get_home_layout().await;
     match topology {
         Ok(components) => {
-            state.virtual_topology_complete.store(true, std::sync::atomic::Ordering::Relaxed);
+            state
+                .virtual_topology_complete
+                .store(true, std::sync::atomic::Ordering::Relaxed);
             state
                 .set_video_dreamview_centers(
                     crate::service::virtual_controls::parse_video_dreamview_centers(&components),
                 )
                 .await;
             state
-                .set_virtual_controls(
-                    crate::service::virtual_controls::parse_virtual_controls(&components),
-                )
+                .set_virtual_controls(crate::service::virtual_controls::parse_virtual_controls(
+                    &components,
+                ))
                 .await;
         }
         Err(err) => {
             // Group topology improves aggregate state but is not required for
             // physical-device discovery or local control.
-            state.virtual_topology_complete.store(false, std::sync::atomic::Ordering::Relaxed);
+            state
+                .virtual_topology_complete
+                .store(false, std::sync::atomic::Ordering::Relaxed);
             log::warn!("Unable to refresh virtual group/DreamView topology: {err:#}");
         }
     }
@@ -287,12 +290,15 @@ impl ServeCommand {
 
     /// Discover configured cloud devices without interrupting local operation.
     async fn discover_devices(state: &StateHandle, args: &crate::Args) -> anyhow::Result<()> {
-        if !state.control_mode().allows_cloud() { return Ok(()); }
+        if !state.control_mode().allows_cloud() {
+            return Ok(());
+        }
         let mut device_db = crate::service::device_database::load_device_database();
         let mut failed = false;
         if let Ok(client) = args.api_args.api_client() {
             state.set_platform_client(client.clone()).await;
-            if let Err(err) = enumerate_devices_via_platform_api(state.clone(), Some(client)).await {
+            if let Err(err) = enumerate_devices_via_platform_api(state.clone(), Some(client)).await
+            {
                 log::warn!("Platform device discovery is unavailable: {err:#}");
                 failed = true;
             }
@@ -300,7 +306,8 @@ impl ServeCommand {
             tokio::spawn(async move {
                 loop {
                     sleep(Duration::from_secs(600)).await;
-                    if let Err(err) = enumerate_devices_via_platform_api(state.clone(), None).await {
+                    if let Err(err) = enumerate_devices_via_platform_api(state.clone(), None).await
+                    {
                         log::warn!("Platform device discovery is unavailable: {err:#}");
                     }
                 }
@@ -308,7 +315,13 @@ impl ServeCommand {
         }
         if let Ok(client) = args.undoc_args.api_client() {
             state.set_undoc_client(client.clone()).await;
-            match enumerate_devices_via_undo_api(state.clone(), Some(client.clone()), &args.undoc_args).await {
+            match enumerate_devices_via_undo_api(
+                state.clone(),
+                Some(client.clone()),
+                &args.undoc_args,
+            )
+            .await
+            {
                 Ok(()) => state.set_undoc_client(client.with_code(None)).await,
                 Err(_) => {
                     log::warn!("Account device discovery is unavailable");
@@ -320,7 +333,9 @@ impl ServeCommand {
             tokio::spawn(async move {
                 loop {
                     sleep(Duration::from_secs(600)).await;
-                    if let Err(err) = enumerate_devices_via_undo_api(state.clone(), None, &args).await {
+                    if let Err(err) =
+                        enumerate_devices_via_undo_api(state.clone(), None, &args).await
+                    {
                         log::warn!("Account device discovery is unavailable: {err:#}");
                     }
                 }
@@ -331,13 +346,19 @@ impl ServeCommand {
                 let mut device = state.device_mut(&persisted.sku, &persisted.device_id).await;
                 if device.http_device_info.is_none() {
                     device.set_http_device_info(crate::platform_api::HttpDeviceInfo {
-                        sku: persisted.sku.clone(), device: persisted.device_id.clone(),
-                        device_name: persisted.name.clone(), device_type: Default::default(), capabilities: vec![],
+                        sku: persisted.sku.clone(),
+                        device: persisted.device_id.clone(),
+                        device_name: persisted.name.clone(),
+                        device_type: Default::default(),
+                        capabilities: vec![],
                     });
                 }
             }
         } else {
-            crate::service::device_database::update_database_from_devices(&mut device_db, &state.devices().await);
+            crate::service::device_database::update_database_from_devices(
+                &mut device_db,
+                &state.devices().await,
+            );
             if let Err(err) = crate::service::device_database::save_device_database(&device_db) {
                 log::warn!("Could not save device metadata: {err}");
             }
@@ -347,7 +368,9 @@ impl ServeCommand {
 
     /// Start LAN UDP discovery and wait for initial device probes.
     async fn start_lan_discovery(state: &StateHandle, args: &crate::Args) -> anyhow::Result<()> {
-        if !state.control_mode().allows_lan() { return Ok(()); }
+        if !state.control_mode().allows_lan() {
+            return Ok(());
+        }
         let options = args.lan_disco_args.to_disco_options()?;
         if options.is_empty() {
             return Ok(());
@@ -497,7 +520,11 @@ impl ServeCommand {
 
         spawn_hass_integration(state.clone(), &args.hass_args).await?;
 
-        if let Ok(Some(api_key)) = args.api_args.opt_api_key().map(|key| key.filter(|_| state.control_mode().allows_cloud())) {
+        if let Ok(Some(api_key)) = args
+            .api_args
+            .opt_api_key()
+            .map(|key| key.filter(|_| state.control_mode().allows_cloud()))
+        {
             if let Err(err) =
                 crate::service::govee_push::start_govee_push_client(&api_key, state.clone()).await
             {
@@ -547,10 +574,24 @@ mod tests {
     #[tokio::test]
     async fn lan_only_startup_does_not_initialize_cloud_services() {
         use clap::Parser;
-        let args = crate::Args::try_parse_from(["govee", "--api-key", "test-key", "--govee-token", "test-token", "serve"]).unwrap();
+        let args = crate::Args::try_parse_from([
+            "govee",
+            "--api-key",
+            "test-key",
+            "--govee-token",
+            "test-token",
+            "serve",
+        ])
+        .unwrap();
         let state = Arc::new(crate::service::state::State::new());
         state.set_control_mode(crate::service::control::ControlMode::LanOnly);
-        tokio::time::timeout(Duration::from_secs(1), ServeCommand::discover_devices(&state, &args)).await.unwrap().unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            ServeCommand::discover_devices(&state, &args),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert!(state.get_platform_client().await.is_none());
         assert!(state.get_undoc_client().await.is_none());
         assert!(!state.has_iot_session().await);
@@ -562,7 +603,13 @@ mod tests {
         let args = crate::Args::try_parse_from(["govee", "serve"]).unwrap();
         let state = Arc::new(crate::service::state::State::new());
         state.set_control_mode(crate::service::control::ControlMode::Cloud);
-        tokio::time::timeout(Duration::from_secs(1), ServeCommand::start_lan_discovery(&state, &args)).await.unwrap().unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            ServeCommand::start_lan_discovery(&state, &args),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert!(state.get_lan_client().await.is_none());
     }
 
@@ -595,4 +642,3 @@ mod tests {
         );
     }
 }
-

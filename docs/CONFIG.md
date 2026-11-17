@@ -237,7 +237,7 @@ device quirks without code changes:
 |`GOVEE_CACHE_DIR=/path`|N/A|Override cache directory|
 |`GOVEE_TEMPERATURE_SCALE=F`|`temperature_scale`|Use Fahrenheit (default: Celsius)|
 |`GOVEE_POLL_INTERVAL=120`|`poll_interval`|Platform API polling interval in seconds (default: 120). Increase to 900 if you have many devices without IoT/LAN support to stay under the 10,000 req/day API limit.|
-|`GOVEE_MUSIC_PALETTE=true`|`music_palette`|Enable the experimental LAN-only custom music palette topic; see [Music Mode](MUSIC_MODE.md).|
+|`GOVEE_MUSIC_PALETTE=true`|`music_palette`|Enable the LAN-only custom music palette topic; see [Music Mode](MUSIC_MODE.md).|
 |`TZ=Europe/Berlin`|N/A|Use this IANA timezone in console, file, and Web UI log timestamps. The Home Assistant app inherits the Supervisor timezone automatically; standalone runs otherwise use the host system timezone.|
 
 

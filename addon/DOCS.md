@@ -25,7 +25,7 @@ Common options:
 - `lan_query_attempts`, `lan_query_backoff_ms`, `lan_breaker_threshold`, `lan_breaker_cooldown`: Bound LAN status traffic from unresponsive devices
 - **Cloud Authentication & Control** (`control_mode`): `LAN first` (default), `LAN only`, or `Cloud`.
 - **Govee Account Token** (`govee_token`): Account access token for saved One Click and account cloud services; takes priority over email/password.
-- `music_palette`: Enable the experimental LAN-only custom music palette topic
+- `music_palette`: Enable the LAN-only custom music palette topic
 
 If `mqtt_host` is left empty, the app waits for the Home Assistant MQTT service and uses the broker details provided by Supervisor.
 
