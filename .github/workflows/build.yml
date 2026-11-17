@@ -145,8 +145,7 @@ jobs:
           ./scripts/ci-metadata.sh
           # Match previous lightweight date tags; never replace an existing ref.
           # A retry may resume a partially completed publication at the same SHA.
-          existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq .object.sha 2>/dev/null || true)"
-          if [[ -n "$existing_sha" ]]; then
+          if existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq .object.sha 2>/dev/null)"; then
             if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
               echo "::error::Tag ${RELEASE_TAG} points to another object"
               exit 1
