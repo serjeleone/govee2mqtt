@@ -164,4 +164,4 @@ See [control modes and authentication](https://github.com/serjeleone/govee2mqtt/
 
 Use the separate **On** and **Off** buttons to send commands. The buttons do not show an active mode because the API may return empty DreamView state and reject virtual-scene state queries. ScenicView commands use the saved scene's `powerSwitch`, independently of account topology. Video DreamView has its own controls on supported physical centers.
 
-Home Assistant also receives On/Off command buttons. Existing MQTT switch identities and command topics remain available for automations, with unknown state when it cannot be observed. The Account Token option has been removed; Platform features use the Govee API Key. Email/password sign-in remains optional for account and One Click features.
+Home Assistant also receives On/Off command buttons. Existing MQTT switch identities and command topics remain available for automations, with unknown state when it cannot be observed. Platform features use the Govee API Key. Email/password sign-in remains optional for account and One Click features.

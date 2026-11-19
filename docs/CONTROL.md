@@ -38,6 +38,4 @@ The state endpoint can return HTTP 200 with JSON `code:400` for virtual objects;
 
 Home Assistant receives separate DreamView and ScenicView On/Off buttons. Existing switch unique IDs and command topics remain compatible with automations; unknown mode state is published as unknown, without optimistic state changes. One Click identities and discovery protection remain intact.
 
-The user-supplied Account Token option introduced in 2026-11-17 has been removed. Keep the **Govee API Key** for Platform features. Optional account email/password and verification-code sign-in remain available for IoT and original One Click actions; the API key alone does not replace that sign-in.
-
-The diagnostic snapshots confirm that DreamView state is not readable through these responses. Real R2A80 ON was tested by the user; hardware OFF and saved ScenicView control still need verification on the devices. Automated tests verify the exact outgoing capabilities and values and error handling.
+Use the **Govee API Key** for Platform features. Optional account email/password and verification-code sign-in are available for IoT and original One Click actions.
