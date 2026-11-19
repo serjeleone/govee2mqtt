@@ -1,5 +1,27 @@
 # Changelog
 
+## [2026-11-19]
+
+## Changed
+
+- Replace Web UI DreamView and virtual group/scene switches with explicit On and Off command buttons.
+- Add Home Assistant DreamView and ScenicView On/Off buttons while preserving existing switch unique IDs and MQTT command topics.
+- Remove the user-supplied Account Token option; retain the Govee API Key and optional email/password/verification-code sign-in.
+
+## Fixed
+
+- Route ScenicView commands through the saved Platform object's advertised powerSwitch, independently of account topology.
+- Resolve existing virtual-control URLs for Platform virtual IDs instead of returning a local 404.
+- Keep command-only virtual controls available without a physical device heartbeat.
+- Keep unknown DreamView/ScenicView state unknown; neither command acceptance nor member power confirms an active mode.
+- Apply real Platform push mode values even before the first state poll.
+- Preserve video-center classification, control-mode restrictions, One Click discovery protection and existing automation identities.
+
+## Validation
+
+- Regression tests cover DreamView On/Off values, ScenicView powerSwitch routing, virtual IDs without account topology, embedded API errors, push reconciliation and unknown state.
+- Device snapshots show empty DreamView mode state and rejected virtual state reads. Hardware OFF and saved ScenicView execution still require a device-side check; successful automated API tests do not establish physical execution.
+
 ## [2026-11-17]
 
 ### Added

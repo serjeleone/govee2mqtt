@@ -64,7 +64,7 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
 | Channel | Needs | Control | Status | Latency |
 |---------|-------|---------|--------|---------|
 | LAN | Device on network + LAN enabled | Full (power, color, brightness, scenes, segments) | Real-time broadcast | Lowest |
-| IoT | Account access token or account sign-in | Full + one-click scenes | Real-time push | Low |
+| IoT | Account email and password | Full + one-click scenes | Real-time push | Low |
 | Platform API | API key | Full except one-click | Poll (120s default) | Medium |
 | Govee Push | API key | Read-only | Real-time push | Low |
 
@@ -72,7 +72,7 @@ via the [Home Assistant MQTT Integration](https://www.home-assistant.io/integrat
 
 * `API Key` means that you have [applied for a key from Govee](https://developer.govee.com/reference/apply-you-govee-api-key)
   and have configured it for use in govee2mqtt
-* `IoT` uses an authenticated Govee account session, supplied by an account access token or account sign-in.
+* `IoT` uses an authenticated Govee account session, obtained through account email and password.
 * `LAN` means that you have enabled the [Govee LAN API](https://app-h5.govee.com/user-manual/wlan-guide)
   on supported devices and that the LAN API protocol is functional on your network
 

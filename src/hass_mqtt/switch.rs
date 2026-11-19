@@ -51,7 +51,7 @@ impl SwitchConfig {
             command_topic,
             state_topic,
             enabled_by_default: None,
-            optimistic: (instance.instance == "dreamViewToggle").then_some(true),
+            optimistic: None,
         })
     }
 
@@ -104,6 +104,10 @@ impl EntityInstance for CapabilitySwitch {
                         if state.on { "ON" } else { "OFF" },
                     )
                     .await?;
+            } else if crate::service::virtual_controls::VirtualDeviceKind::from_sku(&device.sku)
+                .is_some()
+            {
+                client.publish(&self.switch.state_topic, "None").await?;
             }
             return Ok(());
         }
@@ -114,6 +118,7 @@ impl EntityInstance for CapabilitySwitch {
                     .publish(&self.switch.state_topic, if enabled { "ON" } else { "OFF" })
                     .await;
             }
+            return client.publish(&self.switch.state_topic, "None").await;
         }
 
         // TODO: currently, Govee don't return any meaningful data on
@@ -275,7 +280,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dreamview_switch_publishes_optimistic_local_state() {
+    async fn dreamview_switch_preserves_identity_and_publishes_observed_state() {
         use crate::platform_api::{DeviceCapability, DeviceCapabilityKind};
 
         let state = Arc::new(State::new());
@@ -328,3 +333,35 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod unknown_mode_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unknown_mode_clears_old_state_without_optimistic_switching() {
+        let state = StateHandle::default();
+        let device = ServiceDevice::new("R2A80", "AA:BB");
+        state
+            .device_mut(&device.sku, &device.id)
+            .await
+            .request_dreamview(true);
+        let cap = DeviceCapability {
+            kind: crate::platform_api::DeviceCapabilityKind::Toggle,
+            instance: "dreamViewToggle".into(),
+            parameters: None,
+            alarm_type: None,
+            event_state: None,
+        };
+        let entity = CapabilitySwitch::new(&device, &state, &cap).await.unwrap();
+        assert!(entity.switch.optimistic.is_none());
+        let client = HassClient::new_test();
+        entity.notify_state(&client).await.unwrap();
+        assert_eq!(
+            client.published_messages(),
+            vec![(
+                "gv2mqtt/switch/AABB/dreamViewToggle/state".into(),
+                "None".into()
+            )]
+        );
+    }
+}

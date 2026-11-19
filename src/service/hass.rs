@@ -500,6 +500,16 @@ pub fn device_availability_entries(
     Option<String>,
 ) {
     use crate::hass_mqtt::base::AvailabilityEntry;
+    // Virtual controls accept commands but reject device-state polling.
+    // A missing physical heartbeat must not disable their command entities.
+    if crate::service::virtual_controls::VirtualDeviceKind::from_sku(&device.sku).is_some() {
+        return (
+            vec![AvailabilityEntry {
+                topic: availability_topic(),
+            }],
+            None,
+        );
+    }
     (
         vec![
             AvailabilityEntry {
@@ -970,7 +980,7 @@ async fn mqtt_oneclick(
         Some(client) => client,
         None => {
             let msg = "One-click failed: Undoc API client is not available. \
-                       Configure a Govee account access token or account credentials to enable One Click.";
+                       Configure Govee account email and password to enable One Click.";
             log::error!("{msg}");
             if let Some(hass) = state.get_hass_client().await {
                 let _ = hass.publish("gv2mqtt/bridge/error", msg).await;

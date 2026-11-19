@@ -63,7 +63,6 @@ export_config mqtt_username     GOVEE_MQTT_USER
 export_config mqtt_password     GOVEE_MQTT_PASSWORD
 export_config debug_level       RUST_LOG
 export_config control_mode     GOVEE_CONTROL_MODE
-export_config govee_token      GOVEE_ACCOUNT_TOKEN
 export_config govee_email       GOVEE_EMAIL
 export_config govee_password    GOVEE_PASSWORD
 export_config govee_api_key     GOVEE_API_KEY

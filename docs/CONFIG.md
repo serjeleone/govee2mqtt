@@ -19,7 +19,6 @@ updates without polling.
 
 |CLI|ENV|App|Purpose|
 |---|---|-----|-------|
-|`--govee-token`|`GOVEE_ACCOUNT_TOKEN`|`govee_token`|Govee account access token for saved One Click and account services|
 |`--govee-email`|`GOVEE_EMAIL`|`govee_email`|The email address you registered with your govee account|
 |`--govee-password`|`GOVEE_PASSWORD`|`govee_password`|The password you registered for your govee account|
 |`--govee-2fa-code`|`GOVEE_2FA_CODE`|`govee_2fa_code`|One-shot verification code emailed by Govee after a challenged login|

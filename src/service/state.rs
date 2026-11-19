@@ -265,8 +265,10 @@ impl State {
         &self,
         device: &Device,
     ) -> Option<crate::service::device::DeviceState> {
-        if VirtualDeviceKind::from_sku(&device.sku).is_none() {
-            return device.device_state();
+        match VirtualDeviceKind::from_sku(&device.sku) {
+            None => return device.device_state(),
+            Some(VirtualDeviceKind::DreamViewScene) => return None,
+            _ => {}
         }
 
         let Some(definition) = self.virtual_control_for_device(device).await else {
@@ -844,7 +846,7 @@ impl State {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Platform metadata is missing for {device}"))?;
 
-        log::info!("Using Platform API to request DreamView for {device}; state is optimistic until observed");
+        log::info!("Using Platform API to request DreamView for {device}; acceptance does not confirm the current mode");
         let result = client
             .set_toggle_state(info, "dreamViewToggle", enabled)
             .await;
@@ -957,7 +959,7 @@ impl State {
     }
 
     /// Toggle an automatically identified video center using the selected mode.
-    /// Accepted commands update optimistic state until device status is observed.
+    /// Command acceptance never substitutes for an observed mode state.
     pub async fn device_set_dreamview(
         self: &Arc<Self>,
         device: &Device,
@@ -1005,7 +1007,7 @@ impl State {
                 Ok(()) => {
                     self.device_mut(&device.sku, &device.id)
                         .await
-                        .set_dreamview_enabled(enabled);
+                        .request_dreamview(enabled);
                     self.notify_of_state_change(&device.id).await?;
                     return Ok(());
                 }
@@ -1037,6 +1039,21 @@ impl State {
         definition: &VirtualControlDefinition,
         enabled: bool,
     ) -> anyhow::Result<()> {
+        if definition.kind == VirtualDeviceKind::DreamViewScene {
+            let device = self
+                .devices()
+                .await
+                .into_iter()
+                .find(|device| definition_matches_device(definition, device))
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "ScenicView {} has no matching Platform powerSwitch control",
+                        definition.name
+                    )
+                })?;
+            let device = self.resolve_device_for_control(&device.id).await?;
+            return self.device_power_on(&device, enabled).await;
+        }
         if definition.kind != VirtualDeviceKind::MusicDreamView {
             anyhow::bail!(
                 "{} is not an API-backed Music DreamView scene",
@@ -1049,12 +1066,10 @@ impl State {
                 definition.name
             )
         })?;
-        let center = self.resolve_device(center_id).await.ok_or_else(|| {
-            anyhow::anyhow!(
-                "Music DreamView sync center {center_id} for {} was not discovered",
-                definition.name
-            )
-        })?;
+        let center = self.resolve_device_for_control(center_id).await?;
+        if self.device_supports_dreamview(&center).await {
+            return self.device_set_dreamview(&center, enabled).await;
+        }
         if center
             .get_capability_by_instance("dreamViewToggle")
             .is_none()
@@ -1072,7 +1087,7 @@ impl State {
             .await?;
         self.device_mut(&center.sku, &center.id)
             .await
-            .set_dreamview_enabled(enabled);
+            .request_dreamview(enabled);
         self.notify_of_state_change(&center.id).await?;
         Ok(())
     }
@@ -1174,6 +1189,19 @@ impl State {
         device: &Device,
         on: bool,
     ) -> anyhow::Result<()> {
+        if VirtualDeviceKind::from_sku(&device.sku).is_some() {
+            let client = self
+                .get_platform_client()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Platform API is unavailable for {device}"))?;
+            let info = device
+                .http_device_info
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Platform metadata is missing for {device}"))?;
+            let result = client.set_power_state(info, on).await;
+            self.observe_platform_result(device, result).await?;
+            return Ok(());
+        }
         if self.control_mode().allows_lan() {
             if let Some(lan_dev) = &device.lan_device {
                 let result: anyhow::Result<()> = async {

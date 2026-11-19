@@ -357,36 +357,45 @@ async fn device_power_off(
     Ok(response_with_code(StatusCode::OK, "ok"))
 }
 
-async fn virtual_control_power_on(
-    State(state): State<StateHandle>,
-    Path(id): Path<String>,
+async fn set_virtual_control_power(
+    state: StateHandle,
+    id: String,
+    enabled: bool,
 ) -> Result<Response, Response> {
+    if let Some(device) = state.resolve_device(&id).await {
+        if VirtualDeviceKind::from_sku(&device.sku).is_some() {
+            let device = resolve_device_for_control(&state, &device.id).await?;
+            state
+                .device_power_on(&device, enabled)
+                .await
+                .map_err(generic)?;
+            return Ok(response_with_code(StatusCode::OK, "Command accepted"));
+        }
+    }
     let definition = state
         .virtual_control_by_id(&id)
         .await
         .ok_or_else(|| anyhow::anyhow!("Unknown virtual control {id}"))
         .map_err(not_found)?;
     state
-        .virtual_control_set_power(&definition, true)
+        .virtual_control_set_power(&definition, enabled)
         .await
         .map_err(generic)?;
-    Ok(response_with_code(StatusCode::OK, "ok"))
+    Ok(response_with_code(StatusCode::OK, "Command accepted"))
+}
+
+async fn virtual_control_power_on(
+    State(state): State<StateHandle>,
+    Path(id): Path<String>,
+) -> Result<Response, Response> {
+    set_virtual_control_power(state, id, true).await
 }
 
 async fn virtual_control_power_off(
     State(state): State<StateHandle>,
     Path(id): Path<String>,
 ) -> Result<Response, Response> {
-    let definition = state
-        .virtual_control_by_id(&id)
-        .await
-        .ok_or_else(|| anyhow::anyhow!("Unknown virtual control {id}"))
-        .map_err(not_found)?;
-    state
-        .virtual_control_set_power(&definition, false)
-        .await
-        .map_err(generic)?;
-    Ok(response_with_code(StatusCode::OK, "ok"))
+    set_virtual_control_power(state, id, false).await
 }
 
 async fn device_dreamview_on(
@@ -1623,5 +1632,173 @@ mod control_mode_tests {
         assert!(result.is_err());
         let mut buffer = [0;1024];
         assert!(tokio::time::timeout(std::time::Duration::from_millis(30), udp.recv_from(&mut buffer)).await.is_err());
+    }
+}
+
+#[cfg(test)]
+mod command_regression_tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use serde_json::{json, Value};
+    use std::sync::{Arc, Mutex};
+    use tower::ServiceExt;
+
+    async fn fixture(
+        reject: bool,
+    ) -> (
+        StateHandle,
+        Arc<Mutex<Vec<Value>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let calls = Arc::new(Mutex::new(vec![]));
+        let captured = calls.clone();
+        let mock = Router::new().route("/control", post(move |Json(request): Json<Value>| {
+            captured.lock().unwrap().push(request.clone());
+            async move {
+                if reject {
+                    return Json(json!({"code":400, "msg":"devices not exist"}));
+                }
+                let mut capability = request["payload"]["capability"].clone();
+                capability["state"] = json!({"status":"success"});
+                Json(json!({"requestId":"test", "code":200, "msg":"success", "capability":capability}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, mock).await.unwrap();
+        });
+        let state = StateHandle::default();
+        state
+            .set_platform_client(
+                crate::platform_api::GoveeApiClient::new("test-key")
+                    .unwrap()
+                    .with_control_url(format!("http://{addr}/control")),
+            )
+            .await;
+        for (sku, id, instance) in [
+            ("R2A80", "AA:BB", "dreamViewToggle"),
+            ("DreamViewScenic", "12131030", "powerSwitch"),
+            ("DreamViewScenic", "29046484", "powerSwitch"),
+        ] {
+            let info = serde_json::from_value(json!({
+                "sku":sku, "device":id, "deviceName":id,
+                "type": if sku == "R2A80" { "devices.types.light" } else { "NONE" },
+                "capabilities":[{
+                    "type": if instance == "powerSwitch" { "devices.capabilities.on_off" } else { "devices.capabilities.toggle" },
+                    "instance":instance, "parameters":{"dataType":"ENUM", "options":[
+                        {"name":"on", "value":1}, {"name":"off", "value":0}
+                    ]}
+                }]
+            })).unwrap();
+            state.device_mut(sku, id).await.set_http_device_info(info);
+        }
+        (state, calls, server)
+    }
+
+    #[tokio::test]
+    async fn on_off_routes_send_exact_capabilities_without_account_topology() {
+        let (state, calls, server) = fixture(false).await;
+        let app = build_router(state.clone(), false);
+        for (path, instance, id) in [
+            ("/api/device/AABB/dreamview", "dreamViewToggle", "AA:BB"),
+            ("/api/device/12131030/power", "powerSwitch", "12131030"),
+            (
+                "/api/virtual-control/12131030/power",
+                "powerSwitch",
+                "12131030",
+            ),
+            (
+                "/api/virtual-control/29046484/power",
+                "powerSwitch",
+                "29046484",
+            ),
+        ] {
+            for (action, value) in [("on", 1), ("off", 0)] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri(format!("{path}/{action}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK, "{path}/{action}");
+                let request = calls.lock().unwrap().last().unwrap().clone();
+                assert_eq!(request["payload"]["device"], id);
+                assert_eq!(request["payload"]["capability"]["instance"], instance);
+                assert_eq!(request["payload"]["capability"]["value"], value);
+            }
+        }
+        assert_eq!(
+            state
+                .device_by_id("AA:BB")
+                .await
+                .unwrap()
+                .dreamview_enabled(),
+            None
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/devices")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let items: Value = serde_json::from_slice(&bytes).unwrap();
+        for item in items
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| item["sku"] == "DreamViewScenic")
+        {
+            assert_eq!(item["virtual_kind"], "dream_view_scene");
+            assert!(item["state"].is_null());
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn embedded_api_error_is_failure_even_with_http_200() {
+        let (state, calls, server) = fixture(true).await;
+        let app = build_router(state, false);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/virtual-control/12131030/power/on")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn lan_only_does_not_send_virtual_scene_commands_to_cloud() {
+        let (state, calls, server) = fixture(false).await;
+        state.set_control_mode(crate::service::control::ControlMode::LanOnly);
+        let response = build_router(state, false)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/virtual-control/12131030/power/on")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(calls.lock().unwrap().is_empty());
+        server.abort();
     }
 }

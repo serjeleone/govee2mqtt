@@ -578,8 +578,10 @@ mod tests {
             "govee",
             "--api-key",
             "test-key",
-            "--govee-token",
-            "test-token",
+            "--govee-email",
+            "test@example.invalid",
+            "--govee-password",
+            "test-password",
             "serve",
         ])
         .unwrap();

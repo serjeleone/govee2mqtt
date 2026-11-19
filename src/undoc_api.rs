@@ -337,10 +337,6 @@ pub fn ms_timestamp() -> String {
 
 #[derive(Clone, clap::Parser, Debug)]
 pub struct UndocApiArguments {
-    /// Govee account access token. Defaults to GOVEE_ACCOUNT_TOKEN.
-    #[arg(long, global = true)]
-    pub govee_token: Option<String>,
-
     /// The email address you registered with Govee.
     /// If not passed here, it will be read from
     /// the GOVEE_EMAIL environment variable.
@@ -423,10 +419,6 @@ impl UndocApiArguments {
     pub fn api_client(&self) -> anyhow::Result<GoveeUndocumentedApi> {
         let app_version = resolve_app_version(self.govee_app_version.as_deref());
         ACTIVE_APP_VERSION.store(std::sync::Arc::new(app_version));
-        if let Some(token) = opt_arg_or_env(&self.govee_token, "GOVEE_ACCOUNT_TOKEN")?
-            .filter(|value| !value.trim().is_empty()) {
-            return GoveeUndocumentedApi::from_token(token);
-        }
         let email = self.email()?;
         let password = self.password()?;
         let code = self.opt_2fa_code()?;
@@ -446,7 +438,6 @@ pub struct GoveeUndocumentedApi {
     /// subsequent token refreshes. A later 2FA challenge requires another code.
     code: std::sync::Mutex<Option<String>>,
     client_id: String,
-    access_token: Option<Redacted<String>>,
     #[cfg(test)]
     test_server: Option<String>,
 }
@@ -460,7 +451,6 @@ impl Clone for GoveeUndocumentedApi {
                 self.code.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             ),
             client_id: self.client_id.clone(),
-            access_token: self.access_token.clone(),
             #[cfg(test)]
             test_server: self.test_server.clone(),
         }
@@ -478,19 +468,9 @@ impl GoveeUndocumentedApi {
             password,
             code: std::sync::Mutex::new(None),
             client_id,
-            access_token: None,
             #[cfg(test)]
             test_server: None,
         }
-    }
-
-    pub fn from_token(token: String) -> anyhow::Result<Self> {
-        let token = token.trim().strip_prefix("Bearer ").unwrap_or(token.trim()).to_string();
-        anyhow::ensure!(!token.is_empty() && !token.contains(['\r', '\n']), "Invalid Govee account access token");
-        let mut client = Self::new("", "");
-        client.client_id = Uuid::new_v5(&Uuid::NAMESPACE_DNS, token.as_bytes()).simple().to_string();
-        client.access_token = Some(Redacted(token));
-        Ok(client)
     }
 
     fn app_endpoint(&self, path: &str) -> String {
@@ -500,39 +480,7 @@ impl GoveeUndocumentedApi {
     }
 
     pub async fn account_token(&self) -> anyhow::Result<Redacted<String>> {
-        if let Some(token) = &self.access_token { return Ok(token.clone()); }
         Ok(self.login_account_cached().await?.token)
-    }
-
-    /// Obtain the account subscription topic directly from the authenticated API.
-    async fn token_session(&self, token: &str) -> anyhow::Result<LoginAccountResponse> {
-        let key = format!("token-session-{}", Uuid::new_v5(&Uuid::NAMESPACE_DNS, token.as_bytes()).simple());
-        cache_get(CacheGetOptions {
-            topic: "undoc-api", key: &key, soft_ttl: HALF_DAY, hard_ttl: HALF_DAY,
-            negative_ttl: Duration::from_secs(10), allow_stale: false,
-        }, async {
-            let response = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?
-                .post(self.app_endpoint("/account/rest/account/v1/iot"))
-                .bearer_auth(token).header("clientId", &self.client_id)
-                .header("appVersion", active_app_version().as_str()).header("clientType", "1")
-                .json(&json!({"transaction": Uuid::new_v4().to_string()})).send().await
-                .map_err(|_| anyhow::anyhow!("Account token session request failed"))?;
-            #[derive(Deserialize)]
-            struct Data { #[serde(rename="accountTopic")] account_topic: String }
-            #[derive(Deserialize)]
-            struct Response { status: u32, data: Data }
-            let response: Response = http_response_body(response).await
-                .map_err(|_| anyhow::anyhow!("Account token session was rejected"))?;
-            anyhow::ensure!(response.status == 200 && !response.data.account_topic.trim().is_empty(), "Account token session has no subscription topic");
-            Ok(CacheComputeResult::Value(LoginAccountResponse {
-                a: Redacted(String::new()), b: Redacted(String::new()),
-                account_id: Redacted(0), client: Redacted(self.client_id.clone()), is_savvy_user: false,
-                refresh_token: None, client_name: None, push_token: None,
-                version_code: None, version_name: None, sys_version: None,
-                token: Redacted(token.to_string()), token_expire_cycle: 43200,
-                topic: Redacted(response.data.account_topic),
-            }))
-        }).await
     }
 
     /// Builder-style setter for the 2FA verification code. Pass `None` if 2FA is
@@ -917,7 +865,6 @@ impl GoveeUndocumentedApi {
     }
 
     pub async fn login_account_cached(&self) -> anyhow::Result<LoginAccountResponse> {
-        if let Some(token) = &self.access_token { return self.token_session(token).await; }
         cache_get(
             CacheGetOptions {
                 topic: "undoc-api",
@@ -939,7 +886,6 @@ impl GoveeUndocumentedApi {
 
     #[allow(dead_code)]
     pub async fn login_account(&self) -> anyhow::Result<LoginAccountResponse> {
-        if let Some(token) = &self.access_token { return self.token_session(token).await; }
         let value = self.login_account_impl().await?;
         Ok(value.into_inner())
     }
@@ -1160,7 +1106,6 @@ impl GoveeUndocumentedApi {
         }.await;
         match account {
             Ok(layout) => Ok(layout),
-            Err(_) if self.access_token.is_some() => anyhow::bail!("Account token could not load saved controls"),
             Err(_) => {
                 let token = self.login_community().await?;
                 self.get_saved_one_click_shortcuts(&token).await
@@ -2461,7 +2406,6 @@ mod test {
     #[test]
     fn api_client_threads_2fa_code_into_login_body() {
         let args = UndocApiArguments {
-            govee_token: None,
             govee_email: Some("a@b.com".to_string()),
             govee_password: Some("pw".to_string()),
             govee_app_version: None,
@@ -2479,7 +2423,6 @@ mod test {
     #[test]
     fn api_client_with_no_2fa_code_omits_code_field() {
         let args = UndocApiArguments {
-            govee_token: None,
             govee_email: Some("a@b.com".to_string()),
             govee_password: Some("pw".to_string()),
             govee_app_version: None,
@@ -2496,7 +2439,6 @@ mod test {
     #[test]
     fn api_client_normalizes_2fa_code_with_whitespace() {
         let args = UndocApiArguments {
-            govee_token: None,
             govee_email: Some("a@b.com".to_string()),
             govee_password: Some("pw".to_string()),
             govee_app_version: None,
@@ -2511,65 +2453,5 @@ mod test {
             body["code"], "111222",
             "whitespace from email paste must be normalized end-to-end"
         );
-    }
-}
-
-
-#[cfg(test)]
-mod token_tests {
-    use super::*;
-    use axum::{routing::{get, post}, Json, Router};
-    use axum::http::HeaderMap;
-    use std::sync::Arc;
-
-    #[tokio::test]
-    async fn provided_token_loads_devices_one_click_and_iot_session_without_password_login() {
-        let token = format!("test-{}", Uuid::new_v4());
-        let expected = token.clone();
-        let calls = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-        let calls_for_headers = calls.clone();
-        let check = move |headers: HeaderMap, path: &str| {
-            assert_eq!(headers.get("authorization").unwrap().to_str().unwrap(), format!("Bearer {expected}"));
-            calls_for_headers.lock().unwrap().push(path.to_string());
-        };
-        let a = check.clone();
-        let b = check.clone();
-        let c = check.clone();
-        let app = Router::new()
-            .route("/account/rest/account/v1/iot", post(move |headers: HeaderMap| {
-                a(headers, "iot");
-                async { Json(json!({"status":200,"data":{"accountTopic":"GA/test"}})) }
-            }))
-            .route("/device/rest/devices/v1/list", post(move |headers: HeaderMap| {
-                b(headers, "devices");
-                async { Json(serde_json::from_str::<JsonValue>(include_str!("../test-data/undoc-device-list.json")).unwrap()) }
-            }))
-            .route("/bff-app/v1/exec-plat/home", get(move |headers: HeaderMap| {
-                c(headers, "home");
-                async { Json(serde_json::from_str::<JsonValue>(include_str!("../test-data/undoc-one-click.json")).unwrap()) }
-            }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
-        let mut client = GoveeUndocumentedApi::from_token(token).unwrap();
-        client.test_server = Some(format!("http://{address}"));
-        assert!(client.email.is_empty() && client.password.is_empty());
-        let token = client.account_token().await.unwrap();
-        let devices = client.get_device_list(&token).await.unwrap();
-        assert!(!devices.devices.is_empty());
-        assert!(!client.parse_one_clicks().await.unwrap().is_empty());
-        let session = client.login_account_cached().await.unwrap();
-        assert_eq!(session.topic.as_str(), "GA/test");
-        assert_eq!(*calls.lock().unwrap(), vec!["devices", "home", "iot"]);
-        server.abort();
-    }
-
-    #[test]
-    fn token_validation_does_not_echo_credentials() {
-        let error = GoveeUndocumentedApi::from_token("secret\nvalue".to_string()).err().unwrap();
-        assert!(!error.to_string().contains("secret"));
-        let client = GoveeUndocumentedApi::from_token("Bearer test-token".to_string()).unwrap();
-        assert_eq!(client.access_token.as_ref().unwrap().as_str(), "test-token");
-        assert_eq!(format!("{:?}", client.access_token), "Some(REDACTED)");
     }
 }

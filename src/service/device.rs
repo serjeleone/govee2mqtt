@@ -327,6 +327,23 @@ impl Device {
         self.dreamview_enabled
     }
 
+    /// Invalidate mode state after an accepted command; only telemetry can confirm it.
+    pub fn request_dreamview(&mut self, enabled: bool) {
+        self.dreamview_enabled = None;
+        if enabled {
+            self.active_scene.take();
+            self.active_music_mode.take();
+        }
+        // Old Platform snapshots must not republish the previous mode value.
+        if let Some(state) = &mut self.http_device_state {
+            for cap in &mut state.capabilities {
+                if cap.instance.eq_ignore_ascii_case("dreamViewToggle") {
+                    cap.state = serde_json::json!({"value": ""});
+                }
+            }
+        }
+    }
+
     pub fn set_dreamview_enabled(&mut self, enabled: bool) {
         self.dreamview_enabled = Some(enabled);
         if enabled {
@@ -378,12 +395,18 @@ impl Device {
             // A successful Platform state response is itself a positive cloud
             // observation when this SKU omits the optional online capability.
             .unwrap_or(true);
-        if let Some(enabled) = state
-            .capability_by_instance("dreamViewToggle")
-            .and_then(|cap| cap.state.pointer("/value").and_then(|value| value.as_i64()))
-            .map(|value| value != 0)
-        {
-            self.set_dreamview_enabled(enabled);
+        if let Some(cap) = state.capability_by_instance("dreamViewToggle") {
+            let enabled = cap.state.pointer("/value").and_then(|value| {
+                value.as_bool().or_else(|| match value.as_i64() {
+                    Some(0) => Some(false),
+                    Some(1) => Some(true),
+                    _ => None,
+                })
+            });
+            match enabled {
+                Some(enabled) => self.set_dreamview_enabled(enabled),
+                None => self.dreamview_enabled = None,
+            }
         }
         self.set_cloud_online(cloud_online);
     }
@@ -595,7 +618,6 @@ impl Device {
         if is_light_off {
             self.active_scene.take();
             self.active_music_mode.take();
-            self.dreamview_enabled = Some(false);
         }
     }
 
@@ -1276,5 +1298,32 @@ mod test {
         let state = device.device_state().expect("lan state");
         assert_eq!(state.mode, None);
         assert_eq!(state.mode_updated, None);
+    }
+}
+
+#[cfg(test)]
+mod dreamview_observation_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn accepted_command_and_empty_state_do_not_confirm_a_mode() {
+        let mut device = Device::new("R2A80", "CENTER");
+        device.set_dreamview_enabled(true);
+        device.request_dreamview(false);
+        assert_eq!(device.dreamview_enabled(), None);
+        for value in [json!(""), json!(null), json!(2)] {
+            device.set_dreamview_enabled(true);
+            device.observe_http_device_state(&HttpDeviceState {
+                sku: "R2A80".into(),
+                device: "CENTER".into(),
+                capabilities: vec![DeviceCapabilityState {
+                    kind: crate::platform_api::DeviceCapabilityKind::Toggle,
+                    instance: "dreamViewToggle".into(),
+                    state: json!({"value": value}),
+                }],
+            });
+            assert_eq!(device.dreamview_enabled(), None);
+        }
     }
 }

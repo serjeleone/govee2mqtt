@@ -65,7 +65,8 @@ export class DeviceList extends LitElement {
       if (resp.ok) {
         window.gvToast?.(`${label}`, 'success');
       } else {
-        window.gvToast?.(`${label} failed (${resp.status})`, 'error');
+        const error = await resp.json().catch(() => ({}));
+        window.gvToast?.(error.msg || `${label} failed (${resp.status})`, 'error');
       }
     } catch (err) {
       window.gvToast?.(`${label} failed`, 'error');
@@ -103,6 +104,30 @@ export class DeviceList extends LitElement {
       ? 'api/virtual-control'
       : 'api/device';
     this._apiAction(`${path}/${id}/power/${power}`, `${name} ${power}`);
+  }
+
+  async _sendCommand(e) {
+    e.stopPropagation();
+    const button = e.currentTarget;
+    const { id, name, action, path } = button.dataset;
+    button.disabled = true;
+    try {
+      await this._apiAction(`${path}/${encodeURIComponent(id)}/${action}`,
+        `${name}: ${action.endsWith('/on') ? 'On' : 'Off'} command accepted`);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  _commandButtons(item, path, feature, label) {
+    return html`<div class="btn-group btn-group-sm" role="group" aria-label=${`${item.name} ${label}`}>
+      ${['on', 'off'].map(action => html`<button type="button" class="btn btn-outline-secondary"
+        data-id=${item.safe_id} data-name=${`${item.name} ${label}`}
+        data-path=${path} data-action=${`${feature}/${action}`}
+        title=${`Send ${label} ${action} command`} @click=${this._sendCommand}>
+        ${action === 'on' ? 'On' : 'Off'}
+      </button>`)}
+    </div>`;
   }
 
   _set_color(e) {
@@ -383,19 +408,25 @@ export class DeviceList extends LitElement {
                   ${this._render_badge('API', item.api_metadata)}
                   ${this._render_badge('LAN', item.lan_discovered)}
                 `}
-            ${item.is_virtual ? '' : this._render_cloud_badge(item)}
+            ${item.is_virtual ? html`<span class="badge rounded-pill text-bg-secondary">Command only</span>` : this._render_cloud_badge(item)}
           </div>
         </td>
         <td class="gv-device-controls" @click=${(e) => e.stopPropagation()}>
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="form-switch mb-0">
+            ${item.is_virtual
+              ? this._commandButtons(item, isDreamViewVirtual ? 'api/virtual-control' : 'api/device', 'power', this._virtualControlLabel(item))
+              : html`<span class="form-switch mb-0">
               <input data-id=${item.safe_id} data-name=${item.name}
                 data-virtual-control=${isDreamViewVirtual ? 'true' : 'false'}
                 class="form-check-input" type="checkbox" role="switch"
                 @click=${this._set_power_on} ?checked=${isOn}
                 .indeterminate=${!hasState}
                 title=${hasState ? 'Power' : 'Power state is not known yet'}>
-            </span>
+            </span>`}
+            ${item.supports_dreamview ? html`<div class="d-flex align-items-center gap-1">
+              <small class="text-muted">DreamView</small>
+              ${this._commandButtons(item, 'api/device', 'dreamview', 'DreamView')}
+            </div>` : ''}
             ${item.supports_brightness ? html`
               <div class="d-flex align-items-center gap-1">
                 <input type="range" class="form-range" style="width:80px" min="0" max="100"

@@ -5,11 +5,6 @@ configuration:
     description: >-
       LAN first prioritizes local control and uses cloud services when needed.
       LAN only disables cloud connections. Cloud disables LAN discovery and control.
-  govee_token:
-    name: Govee Account Token
-    description: >-
-      Account access token for saved One Click actions and account cloud services.
-      Takes priority over account email and password.
   temperature_scale:
     name: Temperature Scale
     description: >-
@@ -18,11 +13,11 @@ configuration:
   govee_email:
     name: Govee Account Email
     description: >-
-      Account email for password sign-in when no account token is configured.
+      Account email for IoT and saved One Click actions.
   govee_password:
     name: Govee Account Password
     description: >-
-      Account password for password sign-in when no account token is configured.
+      Account password for IoT and saved One Click actions.
   govee_api_key:
     name: Govee API Key
     description: >-

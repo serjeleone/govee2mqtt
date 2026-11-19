@@ -19,10 +19,8 @@ impl VirtualDeviceKind {
     pub fn from_sku(sku: &str) -> Option<Self> {
         match sku {
             "BaseGroup" => Some(Self::BaseGroup),
-            // Scenic DreamView is operationally a DreamView mode: its real
-            // state/control lives on the selected physical sync center's
-            // dreamViewToggle capability, not on the virtual powerSwitch.
-            "DreamViewScenic" | "MusicDreamView" => Some(Self::MusicDreamView),
+            "DreamViewScenic" => Some(Self::DreamViewScene),
+            "MusicDreamView" => Some(Self::MusicDreamView),
             _ => None,
         }
     }
@@ -233,8 +231,8 @@ fn video_dreamview_definition(
     Some(VirtualControlDefinition {
         // Existing API/UI plumbing already treats MusicDreamView as a
         // sync-center-backed mode rather than a pollable virtual power object.
-        // Video and Scenic DreamView intentionally use that same operational
-        // kind so they share cloud state/control without physical switches.
+        // Video uses that same operational kind for the account-level card.
+        // ScenicView is a separate saved control with its own powerSwitch.
         kind: VirtualDeviceKind::MusicDreamView,
         ids,
         name: "DreamView".to_string(),
@@ -304,7 +302,11 @@ pub fn parse_virtual_controls(
 
             if let Some(definition) = definition_from_json(
                 entry,
-                VirtualDeviceKind::MusicDreamView,
+                if feast_type == Some(2) {
+                    VirtualDeviceKind::DreamViewScene
+                } else {
+                    VirtualDeviceKind::MusicDreamView
+                },
                 Some(component.component_id),
                 component.main_device.as_ref(),
                 dreamview_entries.len() == 1,
@@ -393,6 +395,11 @@ pub fn aggregate_virtual_state(
     definition: &VirtualControlDefinition,
     devices: &HashMap<String, Device>,
 ) -> Option<DeviceState> {
+    // Member power and a center's generic DreamView flag cannot identify
+    // which saved ScenicView is active. The state API rejects these objects.
+    if definition.kind == VirtualDeviceKind::DreamViewScene {
+        return None;
+    }
     if definition.kind == VirtualDeviceKind::MusicDreamView {
         let center_id = definition.control_device_id.as_ref()?;
         let center = find_device(devices, center_id)?;
@@ -507,7 +514,7 @@ mod tests {
             .iter()
             .find(|definition| definition.name == "Scenic DreamView")
             .unwrap();
-        assert_eq!(scenic.kind, VirtualDeviceKind::MusicDreamView);
+        assert_eq!(scenic.kind, VirtualDeviceKind::DreamViewScene);
         assert!(scenic.member_ids.iter().any(|id| id == ":11"));
         assert_eq!(scenic.control_device_id.as_deref(), Some(":11"));
     }
@@ -683,5 +690,29 @@ mod tests {
         let definitions = parse_virtual_controls(&components);
         assert_eq!(definitions.len(), 1);
         assert_eq!(definitions[0].member_ids, vec!["CENTER"]);
+    }
+}
+
+#[cfg(test)]
+mod scenic_state_tests {
+    use super::*;
+
+    #[test]
+    fn scenic_view_is_not_a_music_center_or_member_power_state() {
+        assert_eq!(
+            VirtualDeviceKind::from_sku("DreamViewScenic"),
+            Some(VirtualDeviceKind::DreamViewScene)
+        );
+        let mut center = Device::new("R2A80", "CENTER");
+        center.set_dreamview_enabled(true);
+        let devices = HashMap::from([("CENTER".into(), center)]);
+        let definition = VirtualControlDefinition {
+            kind: VirtualDeviceKind::DreamViewScene,
+            ids: vec!["12131030".into()],
+            name: "ScenicView".into(),
+            member_ids: vec!["CENTER".into()],
+            control_device_id: Some("CENTER".into()),
+        };
+        assert!(aggregate_virtual_state(&definition, &devices).is_none());
     }
 }

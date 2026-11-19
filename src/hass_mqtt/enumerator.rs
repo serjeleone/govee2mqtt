@@ -228,6 +228,28 @@ pub async fn enumerate_entities_for_device<'a>(
     let mut has_dedicated_scene_controls = false;
     let mut has_dreamview_switch = false;
     let supports_video_dreamview = state.device_supports_dreamview(d).await;
+    if supports_video_dreamview {
+        for enabled in [true, false] {
+            entities.add(ButtonConfig::command_for_device(
+                d,
+                "dreamViewToggle",
+                "DreamView",
+                enabled,
+            ));
+        }
+    }
+    if crate::service::virtual_controls::VirtualDeviceKind::from_sku(&d.sku)
+        == Some(crate::service::virtual_controls::VirtualDeviceKind::DreamViewScene)
+    {
+        for enabled in [true, false] {
+            entities.add(ButtonConfig::command_for_device(
+                d,
+                "powerSwitch",
+                "ScenicView",
+                enabled,
+            ));
+        }
+    }
 
     if let Some(info) = &d.http_device_info {
         for (instance, label) in [

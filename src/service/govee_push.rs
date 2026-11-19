@@ -257,23 +257,79 @@ async fn process_push_event(state: &StateHandle, event: &GoveeEvent) {
     // Update capability states on the device
     if !event.capabilities.is_empty() {
         let mut device = state.device_mut(sku, device_id).await;
-        if let Some(http_state) = &mut device.http_device_state {
-            for cap in &event.capabilities {
-                if let (Some(instance), Some(state_val)) = (&cap.instance, &cap.state) {
-                    // Update matching capability state
-                    for existing in &mut http_state.capabilities {
-                        if existing.instance.eq_ignore_ascii_case(instance) {
-                            existing.state = state_val.clone();
-                        }
-                    }
+        let mut snapshot = device.http_device_state.clone().unwrap_or_else(|| {
+            crate::platform_api::HttpDeviceState {
+                sku: sku.clone(),
+                device: device_id.clone(),
+                capabilities: vec![],
+            }
+        });
+        for cap in &event.capabilities {
+            if let (Some(instance), Some(value)) = (&cap.instance, &cap.state) {
+                if let Some(existing) = snapshot
+                    .capabilities
+                    .iter_mut()
+                    .find(|existing| existing.instance.eq_ignore_ascii_case(instance))
+                {
+                    existing.state = value.clone();
+                } else {
+                    snapshot
+                        .capabilities
+                        .push(crate::platform_api::DeviceCapabilityState {
+                            kind: cap
+                                .kind
+                                .as_ref()
+                                .and_then(|kind| {
+                                    serde_json::from_value(JsonValue::String(kind.clone())).ok()
+                                })
+                                .unwrap_or(crate::platform_api::DeviceCapabilityKind::Toggle),
+                            instance: instance.clone(),
+                            state: value.clone(),
+                        });
                 }
             }
         }
+        device.set_http_device_state(snapshot);
+        device.set_cloud_online(true);
         device.set_last_polled();
     }
 
     // Notify HA of the state change
     if let Err(err) = state.notify_of_state_change(device_id).await {
         log::debug!("Failed to notify state change from push event: {err:#}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn mode_push_reconciles_before_first_poll_and_preserves_other_capabilities() {
+        let state = StateHandle::default();
+        for value in [json!(1), json!(0), json!(true), json!(false), json!("")] {
+            let event: GoveeEvent = serde_json::from_value(json!({
+                "sku":"R2A80", "device":"CENTER", "capabilities":[{
+                    "type":"devices.capabilities.toggle", "instance":"dreamViewToggle",
+                    "state":{"value":value}
+                }]
+            }))
+            .unwrap();
+            process_push_event(&state, &event).await;
+            let device = state.device_by_id("CENTER").await.unwrap();
+            let expected = value.as_bool().or_else(|| value.as_i64().map(|v| v == 1));
+            assert_eq!(device.dreamview_enabled(), expected);
+            assert_eq!(device.cloud_online(), Some(true));
+        }
+        let event: GoveeEvent = serde_json::from_value(json!({
+            "sku":"R2A80", "device":"CENTER", "capabilities":[{
+                "type":"devices.capabilities.range", "instance":"brightness", "state":{"value":73}
+            }]
+        }))
+        .unwrap();
+        process_push_event(&state, &event).await;
+        let device = state.device_by_id("CENTER").await.unwrap();
+        assert_eq!(device.http_device_state.unwrap().capabilities.len(), 2);
     }
 }

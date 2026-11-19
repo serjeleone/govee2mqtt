@@ -24,7 +24,6 @@ Common options:
 - `allowed_effects`: Comma-separated whitelist of effect names to include
 - `lan_query_attempts`, `lan_query_backoff_ms`, `lan_breaker_threshold`, `lan_breaker_cooldown`: Bound LAN status traffic from unresponsive devices
 - **Cloud Authentication & Control** (`control_mode`): `LAN first` (default), `LAN only`, or `Cloud`.
-- **Govee Account Token** (`govee_token`): Account access token for saved One Click and account cloud services; takes priority over email/password.
 - `music_palette`: Enable the LAN-only custom music palette topic
 
 If `mqtt_host` is left empty, the app waits for the Home Assistant MQTT service and uses the broker details provided by Supervisor.
@@ -159,3 +158,10 @@ Enable the API key to get real-time push updates without polling. Enable LAN con
 ## Cloud Authentication & Control
 
 See [control modes and authentication](https://github.com/serjeleone/govee2mqtt/blob/main/docs/CONTROL.md).
+
+
+### DreamView and ScenicView
+
+Use the separate **On** and **Off** buttons to send commands. The buttons do not show an active mode because the API may return empty DreamView state and reject virtual-scene state queries. ScenicView commands use the saved scene's `powerSwitch`, independently of account topology. Video DreamView has its own controls on supported physical centers.
+
+Home Assistant also receives On/Off command buttons. Existing MQTT switch identities and command topics remain available for automations, with unknown state when it cannot be observed. The Account Token option has been removed; Platform features use the Govee API Key. Email/password sign-in remains optional for account and One Click features.

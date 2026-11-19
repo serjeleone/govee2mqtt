@@ -1,6 +1,6 @@
 name: Govee to MQTT Bridge
 image: ghcr.io/serjeleone/{arch}-govee2mqtt-addon
-version: "2026-11-17"
+version: "2026-11-19"
 slug: govee2mqtt-lite
 description: Control Govee Devices
 url: https://github.com/serjeleone/govee2mqtt
@@ -33,7 +33,6 @@ options:
 
 schema:
   control_mode: "list(LAN first|LAN only|Cloud)"
-  govee_token: "password?"
   temperature_scale: "str?"
   govee_email: "str?"
   govee_password: "password?"

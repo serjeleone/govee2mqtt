@@ -94,6 +94,9 @@ jobs:
           ref: ${{ github.event.release.tag_name || github.sha }}
           persist-credentials: false
 
+      - name: Test Web UI commands
+        run: node --test tests/web_controls.mjs
+
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
         with:

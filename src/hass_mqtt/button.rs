@@ -93,6 +93,25 @@ impl ButtonConfig {
         }
     }
 
+    pub fn command_for_device(
+        device: &ServiceDevice,
+        instance: &str,
+        label: &str,
+        enabled: bool,
+    ) -> Self {
+        let action = if enabled { "On" } else { "Off" };
+        let id = topic_safe_id(device);
+        Self {
+            base: EntityConfig::for_device(
+                device,
+                Some(format!("{label} {action}")),
+                format!("gv2mqtt-{id}-{instance}-{}", action.to_ascii_lowercase()),
+            ),
+            command_topic: format!("gv2mqtt/switch/{id}/command/{instance}"),
+            payload_press: Some(if enabled { "ON" } else { "OFF" }.to_string()),
+        }
+    }
+
     pub fn scene_next_for_device(device: &ServiceDevice) -> Self {
         let unique_id = format!("gv2mqtt-{id}-scene-next", id = topic_safe_id(device));
         let command_topic = format!("gv2mqtt/{id}/scene-next", id = topic_safe_id(device));
@@ -198,5 +217,37 @@ mod tests {
         assert_eq!(button.command_topic, "gv2mqtt/AABB/request-platform-data");
 
         let _entity_trait: &dyn EntityInstance = &button;
+    }
+}
+
+#[cfg(test)]
+mod command_button_tests {
+    use super::*;
+
+    #[test]
+    fn command_buttons_share_legacy_command_topics_and_have_distinct_ids() {
+        let device = ServiceDevice::new("R2A80", "AA:BB");
+        let on = ButtonConfig::command_for_device(&device, "dreamViewToggle", "DreamView", true);
+        let off = ButtonConfig::command_for_device(&device, "dreamViewToggle", "DreamView", false);
+        assert_eq!(
+            on.command_topic,
+            "gv2mqtt/switch/AABB/command/dreamViewToggle"
+        );
+        assert_eq!(off.command_topic, on.command_topic);
+        assert_eq!(on.payload_press.as_deref(), Some("ON"));
+        assert_eq!(off.payload_press.as_deref(), Some("OFF"));
+        assert_ne!(on.base.unique_id, off.base.unique_id);
+        assert!(serde_json::to_value(on)
+            .unwrap()
+            .get("state_topic")
+            .is_none());
+        let scene = ServiceDevice::new("DreamViewScenic", "12131030");
+        let button = ButtonConfig::command_for_device(&scene, "powerSwitch", "ScenicView", true);
+        assert_eq!(
+            button.command_topic,
+            "gv2mqtt/switch/12131030/command/powerSwitch"
+        );
+        assert_eq!(button.base.availability.len(), 1);
+        assert_eq!(button.base.availability[0].topic, availability_topic());
     }
 }
